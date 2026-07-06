@@ -58,7 +58,7 @@ pipeline {
         // ===== Stage 1: 代码检出 =====
         stage('Checkout') {
             steps {
-                sh 'cp -r /mnt/campus-assistant-java/* . 2>/dev/null; cp -r /mnt/campus-assistant-java/.[!.]* . 2>/dev/null; rm -rf .git; true'
+                sh "(cp -r /mnt/campus-assistant-java/* . 2>/dev/null; cp -r /mnt/campus-assistant-java/.[!.]* . 2>/dev/null; rm -rf .git 2>/dev/null; true)"
                 script {
                     def commit = 'local'
                     env.GIT_COMMIT = commit
@@ -348,11 +348,11 @@ for c in cases:
         success {
             script {
                 def fullImage = "${DOCKER_REGISTRY}/${DOCKER_IMAGE}-campus-server:${env.DOCKER_TAG}"
-                echo "Build notification sent"  // emailext replaced
+                echo "Build notification: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
             }
         }
         failure {
-            echo "Build notification sent"  // emailext replaced
+            echo "Build notification: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
         }
     }
 }

@@ -1,0 +1,361 @@
+# ============================================================================
+# 校园电商/外卖智能服务平台 — Java 版 K8s 部署
+# 组件: MySQL + Redis + 3微服务 + 主应用(x2) + HPA
+# 部署: kubectl apply -f k8s/
+# ============================================================================
+#
+# 首次部署步骤:
+#   1. kubectl create namespace campus-prod
+#   2. kubectl create configmap mysql-init --from-file=init.sql=mysql/init.sql -n campus-prod
+#   3. kubectl apply -f k8s/deployment.yaml -n campus-prod
+#
+# Jenkins 流水线会自动执行以上步骤
+# ============================================================================
+
+# ─── ConfigMap ───
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: campus-config
+data:
+  mysql-url: "jdbc:mysql://mysql:3306/campus?useSSL=false&allowPublicKeyRetrieval=true&characterEncoding=UTF-8&useUnicode=true"
+  mysql-user: "root"
+  order-service-url: "http://order-service:8001"
+  product-service-url: "http://product-service:8002"
+  logistics-service-url: "http://logistics-service:8003"
+---
+# ─── Secret ───
+apiVersion: v1
+kind: Secret
+metadata:
+  name: campus-secret
+type: Opaque
+stringData:
+  mysql-password: "campus123"
+---
+# ─── MySQL ───
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mysql
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mysql
+  template:
+    metadata:
+      labels:
+        app: mysql
+    spec:
+      containers:
+        - name: mysql
+          image: mysql:8.0
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: campus-secret
+                  key: mysql-password
+            - name: MYSQL_DATABASE
+              value: campus
+          ports:
+            - containerPort: 3306
+          volumeMounts:
+            - name: mysql-data
+              mountPath: /var/lib/mysql
+            - name: init-sql
+              mountPath: /docker-entrypoint-initdb.d
+          resources:
+            requests: { memory: "512Mi", cpu: "250m" }
+            limits:   { memory: "1Gi",   cpu: "1000m" }
+          readinessProbe:
+            tcpSocket: { port: 3306 }
+            initialDelaySeconds: 30
+            periodSeconds: 10
+      volumes:
+        - name: mysql-data
+          persistentVolumeClaim:
+            claimName: mysql-pvc
+        - name: init-sql
+          configMap:
+            name: mysql-init
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql
+spec:
+  selector: { app: mysql }
+  ports: [{ port: 3306, targetPort: 3306 }]
+  type: ClusterIP
+---
+# ─── Redis ───
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          ports: [{ containerPort: 6379 }]
+          resources:
+            requests: { memory: "64Mi", cpu: "100m" }
+            limits:   { memory: "128Mi", cpu: "250m" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+spec:
+  selector: { app: redis }
+  ports: [{ port: 6379, targetPort: 6379 }]
+  type: ClusterIP
+---
+# ─── 订单微服务 ───
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: order-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: order-service
+  template:
+    metadata:
+      labels:
+        app: order-service
+    spec:
+      containers:
+        - name: order-service
+          image: campus-assistant-java-order-service:latest
+          imagePullPolicy: IfNotPresent
+          ports: [{ containerPort: 8001 }]
+          env:
+            - name: SPRING_DATASOURCE_URL
+              valueFrom:
+                configMapKeyRef: { name: campus-config, key: mysql-url }
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                configMapKeyRef: { name: campus-config, key: mysql-user }
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: campus-secret, key: mysql-password }
+          resources:
+            requests: { memory: "256Mi", cpu: "200m" }
+            limits:   { memory: "512Mi", cpu: "500m" }
+          readinessProbe:
+            httpGet: { path: /available, port: 8001 }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /available, port: 8001 }
+            initialDelaySeconds: 30
+            periodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: order-service
+spec:
+  selector: { app: order-service }
+  ports: [{ port: 8001, targetPort: 8001 }]
+  type: ClusterIP
+---
+# ─── 商品微服务 ───
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: product-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: product-service
+  template:
+    metadata:
+      labels:
+        app: product-service
+    spec:
+      containers:
+        - name: product-service
+          image: campus-assistant-java-product-service:latest
+          imagePullPolicy: IfNotPresent
+          ports: [{ containerPort: 8002 }]
+          env:
+            - name: SPRING_DATASOURCE_URL
+              valueFrom:
+                configMapKeyRef: { name: campus-config, key: mysql-url }
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                configMapKeyRef: { name: campus-config, key: mysql-user }
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: campus-secret, key: mysql-password }
+          resources:
+            requests: { memory: "256Mi", cpu: "200m" }
+            limits:   { memory: "512Mi", cpu: "500m" }
+          readinessProbe:
+            httpGet: { path: /products, port: 8002 }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: product-service
+spec:
+  selector: { app: product-service }
+  ports: [{ port: 8002, targetPort: 8002 }]
+  type: ClusterIP
+---
+# ─── 物流微服务 ───
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: logistics-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: logistics-service
+  template:
+    metadata:
+      labels:
+        app: logistics-service
+    spec:
+      containers:
+        - name: logistics-service
+          image: campus-assistant-java-logistics-service:latest
+          imagePullPolicy: IfNotPresent
+          ports: [{ containerPort: 8003 }]
+          env:
+            - name: SPRING_DATASOURCE_URL
+              valueFrom:
+                configMapKeyRef: { name: campus-config, key: mysql-url }
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                configMapKeyRef: { name: campus-config, key: mysql-user }
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: campus-secret, key: mysql-password }
+          resources:
+            requests: { memory: "256Mi", cpu: "200m" }
+            limits:   { memory: "512Mi", cpu: "500m" }
+          readinessProbe:
+            httpGet: { path: /track/20260601001, port: 8003 }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: logistics-service
+spec:
+  selector: { app: logistics-service }
+  ports: [{ port: 8003, targetPort: 8003 }]
+  type: ClusterIP
+---
+# ─── 主应用 ───
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: campus-server
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: campus-server
+  template:
+    metadata:
+      labels:
+        app: campus-server
+    spec:
+      containers:
+        - name: campus-server
+          image: campus-assistant-java-campus-server:latest
+          imagePullPolicy: IfNotPresent
+          ports: [{ containerPort: 8000 }]
+          env:
+            - name: SERVER_PORT
+              value: "8000"
+            - name: ORDER_URL
+              valueFrom:
+                configMapKeyRef: { name: campus-config, key: order-service-url }
+            - name: PRODUCT_URL
+              valueFrom:
+                configMapKeyRef: { name: campus-config, key: product-service-url }
+            - name: LOGISTICS_URL
+              valueFrom:
+                configMapKeyRef: { name: campus-config, key: logistics-service-url }
+            - name: SPRING_DATASOURCE_URL
+              valueFrom:
+                configMapKeyRef: { name: campus-config, key: mysql-url }
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                configMapKeyRef: { name: campus-config, key: mysql-user }
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: campus-secret, key: mysql-password }
+          resources:
+            requests: { memory: "384Mi", cpu: "250m" }
+            limits:   { memory: "768Mi", cpu: "1000m" }
+          readinessProbe:
+            httpGet: { path: /api/health, port: 8000 }
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /api/health, port: 8000 }
+            initialDelaySeconds: 40
+            periodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: campus-server
+spec:
+  selector: { app: campus-server }
+  ports: [{ port: 80, targetPort: 8000 }]
+  type: LoadBalancer
+---
+# ─── HPA 自动扩缩 ───
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: campus-server-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: campus-server
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+---
+# ─── PVC ───
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mysql-pvc
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 5Gi

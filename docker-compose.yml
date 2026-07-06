@@ -1,0 +1,157 @@
+# ============================================================================
+# 校园电商/外卖智能服务平台 — Docker Compose 完整部署
+# 组件: Nginx(负载均衡) + 主应用(x2) + 订单/商品/物流微服务 + MySQL
+# 启动: docker compose up --build -d
+# 扩缩: docker compose up --scale campus-server=3 -d
+# ============================================================================
+
+version: "3.9"
+
+services:
+  # ── MySQL 数据库 ─────────────────────────────────────────────
+  mysql:
+    image: mysql:8.0
+    container_name: campus-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: campus123
+      MYSQL_DATABASE: campus
+    # ports:
+    #   - "3306:3306"   # 仅在调试时需要暴露到宿主机
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./mysql/init.sql:/docker-entrypoint-initdb.d/01-init.sql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - campus-net
+
+  # ── 订单微服务 (8001) ─────────────────────────────────────────
+  order-service:
+    build:
+      context: .
+      dockerfile: order-service/Dockerfile
+    container_name: campus-order
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: "jdbc:mysql://mysql:3306/campus?useSSL=false&allowPublicKeyRetrieval=true&characterEncoding=UTF-8&useUnicode=true"
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: campus123
+    networks:
+      - campus-net
+
+  # ── 商品微服务 (8002) ─────────────────────────────────────────
+  product-service:
+    build:
+      context: .
+      dockerfile: product-service/Dockerfile
+    container_name: campus-product
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: "jdbc:mysql://mysql:3306/campus?useSSL=false&allowPublicKeyRetrieval=true&characterEncoding=UTF-8&useUnicode=true"
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: campus123
+    networks:
+      - campus-net
+
+  # ── 物流微服务 (8003) ─────────────────────────────────────────
+  logistics-service:
+    build:
+      context: .
+      dockerfile: logistics-service/Dockerfile
+    container_name: campus-logistics
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: "jdbc:mysql://mysql:3306/campus?useSSL=false&allowPublicKeyRetrieval=true&characterEncoding=UTF-8&useUnicode=true"
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: campus123
+    networks:
+      - campus-net
+
+  # ── 主应用 (8000) x2 — Nginx 做负载均衡 ────────────────────────
+  campus-server-1:
+    build:
+      context: .
+      dockerfile: campus-server/Dockerfile
+    container_name: campus-server-1
+    restart: unless-stopped
+    depends_on:
+      - order-service
+      - product-service
+      - logistics-service
+    environment:
+      SERVER_PORT: "8000"
+      ORDER_URL: http://order-service:8001
+      PRODUCT_URL: http://product-service:8002
+      LOGISTICS_URL: http://logistics-service:8003
+      SPRING_DATASOURCE_URL: "jdbc:mysql://mysql:3306/campus?useSSL=false&allowPublicKeyRetrieval=true&characterEncoding=UTF-8&useUnicode=true"
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: campus123
+    networks:
+      - campus-net
+
+  campus-server-2:
+    build:
+      context: .
+      dockerfile: campus-server/Dockerfile
+    container_name: campus-server-2
+    restart: unless-stopped
+    depends_on:
+      - order-service
+      - product-service
+      - logistics-service
+    environment:
+      SERVER_PORT: "8000"
+      ORDER_URL: http://order-service:8001
+      PRODUCT_URL: http://product-service:8002
+      LOGISTICS_URL: http://logistics-service:8003
+      SPRING_DATASOURCE_URL: "jdbc:mysql://mysql:3306/campus?useSSL=false&allowPublicKeyRetrieval=true&characterEncoding=UTF-8&useUnicode=true"
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: campus123
+    networks:
+      - campus-net
+
+  # ── Nginx 负载均衡 ────────────────────────────────────────────
+  nginx:
+    image: nginx:alpine
+    container_name: campus-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - campus-server-1
+      - campus-server-2
+    networks:
+      - campus-net
+
+  # ── Redis 会话共享 (SOA: 多实例水平扩展) ──────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: campus-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    networks:
+      - campus-net
+
+networks:
+  campus-net:
+    driver: bridge
+
+volumes:
+  mysql_data:
+    driver: local

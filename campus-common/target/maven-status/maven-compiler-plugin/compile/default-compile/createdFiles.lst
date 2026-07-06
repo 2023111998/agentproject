@@ -1,0 +1,9 @@
+com\campus\common\dto\ApiResponse.class
+com\campus\common\dto\LogisticsResponse.class
+com\campus\common\dto\ProductResponse.class
+com\campus\common\model\Order.class
+com\campus\common\model\Policy.class
+com\campus\common\model\Logistics.class
+com\campus\common\model\Product.class
+com\campus\common\model\User.class
+com\campus\common\dto\OrderResponse.class

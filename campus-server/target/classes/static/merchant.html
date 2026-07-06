@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>商家端 - 校园外卖</title>
+<link rel="stylesheet" href="shared.css">
+</head><body>
+
+<div id="app">
+  <nav class="topnav">
+    <span class="brand">🍱 校园外卖</span>
+    <a href="/">🛒 用户端</a>
+    <a href="/merchant" class="active">🏪 商家端</a>
+    <a href="/rider">🛵 骑手端</a>
+    <span class="spacer"></span>
+    <span class="user"><span>{{ currentStore.name }}</span><div class="avatar">食</div></span>
+  </nav>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="section">店铺</div>
+      <a v-for="s in stores" :key="s.id" href="#" :class="{active:storeId===s.id}" @click.prevent="storeId=s.id;loadAll()">
+        <span class="icon">{{ s.id==='m001'?'🍜':'💻' }}</span>{{ s.name }}
+      </a>
+      <div class="section" style="margin-top:12px">管理</div>
+      <a href="#" :class="{active:tab==='orders'}" @click.prevent="tab='orders'"><span class="icon">📋</span>订单管理</a>
+      <a href="#" :class="{active:tab==='products'}" @click.prevent="tab='products'"><span class="icon">📦</span>商品管理</a>
+    </aside>
+
+    <div class="main">
+      <!-- 统计 -->
+      <div class="stats">
+        <div class="stat"><div class="n">{{ stats.total_orders }}</div><div class="l">总订单</div></div>
+        <div class="stat"><div class="n">{{ stats.today_orders }}</div><div class="l">今日订单</div></div>
+        <div class="stat"><div class="n">¥{{ stats.today_revenue }}</div><div class="l">今日营收</div></div>
+        <div class="stat" style="background:#fef3c7"><div class="n" style="color:#d97706">{{ pendingCount }}</div><div class="l">待人工审核</div></div>
+      </div>
+
+      <!-- 订单管理 -->
+      <div class="panel" v-if="tab==='orders'">
+        <div class="panel-header">📋 {{ currentStore.name }} — 订单列表</div>
+        <div v-if="!orders.length" class="empty-state"><div class="icon">📭</div><p>暂无订单</p></div>
+        <div class="order-card" v-for="o in orders" :key="o.id" :style="{borderLeftColor: needsReview(o)?'var(--warning)':'var(--primary)'}">
+          <div class="head">
+            <span class="oid">#{{ o.id }}</span>
+            <span>
+              <span v-html="statusBadge(o.status)"></span>
+              <span class="badge badge-primary">{{ o.type }}</span>
+              <span v-if="needsReview(o)" class="badge badge-warning">需人工审核</span>
+            </span>
+          </div>
+          <div class="items">{{ parseItems(o.items).join('、') }} · ¥{{ o.amount.toFixed(2) }}</div>
+          <div class="foot"><span>👤{{ o.user_id }}</span><span>🛵{{ o.rider_id||'待接单' }}</span><span>📍{{ o.address }}</span><span>{{ o.created_at||'' }}</span></div>
+          <div class="btn-group" style="margin-top:8px" v-if="needsReview(o)">
+            <button class="btn btn-warning" style="background:var(--warning);color:#fff" @click="manualRefund(o.id)">👨‍💼 人工审核通过，退款</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 商品管理 -->
+      <div class="panel" v-if="tab==='products'">
+        <div class="panel-header">{{ editingId ? '✏️ 编辑商品' : '➕ 新增商品 — '+currentStore.name }}</div>
+        <div class="form-row"><div class="form-group"><label>名称</label><input v-model="form.name" placeholder="商品名称"></div><div class="form-group"><label>价格 ¥</label><input v-model.number="form.price" type="number" step="0.01"></div></div>
+        <div class="form-row"><div class="form-group"><label>库存</label><input v-model.number="form.stock" type="number"></div><div class="form-group"><label>标签</label><select v-model="form.tag"><option>外卖</option><option>数码</option></select></div></div>
+        <button class="btn btn-primary" @click="saveProduct">{{ editingId?'保存修改':'上架商品' }}</button>
+        <button v-if="editingId" class="btn btn-outline" style="margin-left:8px" @click="resetForm">取消</button>
+
+        <div style="margin-top:24px"><div class="panel-header" style="border-bottom:none;margin-bottom:0">已上架商品</div></div>
+        <div v-if="!myProducts.length" class="empty-state"><div class="icon">📦</div><p>暂无商品</p></div>
+        <div class="order-card" v-for="p in myProducts" :key="p.id" style="border-left-color:var(--success)">
+          <div class="head"><span class="oid">{{ p.name }}</span><span class="badge badge-primary">{{ p.tag }}</span></div>
+          <div class="items">¥{{ p.price.toFixed(2) }} · 库存{{ p.stock }} · ⭐{{ p.rating }}</div>
+          <div class="foot"><span>ID:{{ p.id }}</span><div class="btn-group"><button class="btn btn-outline btn-sm" @click="edit(p)">✏️</button><button class="btn btn-danger btn-sm" @click="del(p.id)">🗑️</button></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.prod.js"></script>
+<script src="app.js"></script>
+<script>
+const { createApp, ref, reactive, computed, onMounted, watch } = Vue;
+const { api, toast, statusBadge } = App;
+
+createApp({
+  setup() {
+    const stores = [{ id:'m001', name:'学生食堂' }, { id:'m002', name:'校园商业街数码店' }];
+    const storeId = ref('m001');
+    const tab = ref('orders');
+    const stats = reactive({ total_orders:0, today_orders:0, today_revenue:0 });
+    const orders = ref([]);
+    const myProducts = ref([]);
+    const editingId = ref(null);
+    const form = reactive({ name:'', price:15, stock:100, tag:'外卖' });
+
+    const currentStore = computed(() => stores.find(s=>s.id===storeId.value)||stores[0]);
+    const pendingCount = computed(() => orders.value.filter(o=>needsReview(o)).length);
+
+    function needsReview(o) { return o.amount >= 100 && (o.status==='已下单'||o.status==='已发货'||o.status==='配送中'); }
+    function parseItems(i) { try{return JSON.parse(i||'[]')}catch{return[i]} }
+    function resetForm() { editingId.value=null; form.name=''; form.price=15; form.stock=100; form.tag='外卖'; }
+
+    async function loadAll() { await Promise.all([loadStats(), loadOrders(), loadProducts()]); }
+    async function loadStats() { Object.assign(stats, await api.getStoreStats(storeId.value)); }
+    async function loadOrders() { orders.value = await api.getStoreOrders(storeId.value); }
+    async function loadProducts() { const all = await api.getProducts(); myProducts.value = all.filter(p=>p.store_id===storeId.value); }
+
+    async function manualRefund(oid) {
+      if (!confirm('确认人工审核通过，发起退款？')) return;
+      const r = await api.manualRefund(oid);
+      if (r.order_id) { toast('人工退款已发起'); loadOrders(); } else toast(r.error||'失败', false);
+    }
+
+    async function saveProduct() {
+      const data = { store_id:storeId.value, name:form.name, price:form.price, stock:form.stock, tag:form.tag };
+      let r = editingId.value ? await api.updateProduct(editingId.value, data) : await api.addProduct(data);
+      if (r.id||r.msg) { toast(editingId.value?'已更新':'已上架'); resetForm(); loadProducts(); } else toast(r.error||'失败', false);
+    }
+    function edit(p) { editingId.value=p.id; form.name=p.name; form.price=p.price; form.stock=p.stock; form.tag=p.tag; }
+    async function del(id) { if(!confirm('确认下架?'))return; await api.deleteProduct(id); toast('已下架'); loadProducts(); }
+
+    watch(tab, v=>{ v==='orders'?(loadOrders(),loadStats()):loadProducts(); });
+    watch(storeId, ()=>{ loadAll(); });
+    onMounted(loadAll);
+
+    return { stores, storeId, tab, stats, orders, myProducts, editingId, form,
+             currentStore, pendingCount, needsReview, manualRefund,
+             saveProduct, edit, del, resetForm, parseItems, statusBadge, loadAll };
+  }
+}).mount('#app');
+</script>
+</body></html>

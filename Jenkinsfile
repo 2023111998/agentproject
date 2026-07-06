@@ -58,7 +58,7 @@ pipeline {
         // ===== Stage 1: 代码检出 =====
         stage('Checkout') {
             steps {
-                sh "(cp -r /mnt/campus-assistant-java/* . 2>/dev/null; cp -r /mnt/campus-assistant-java/.[!.]* . 2>/dev/null; rm -rf .git 2>/dev/null; true)"
+                sh "set +e; cp -r /mnt/campus-assistant-java/* . 2>/dev/null; cp -r /mnt/campus-assistant-java/.[!.]* . 2>/dev/null; rm -rf .git 2>/dev/null; echo OK"
                 script {
                     def commit = 'local'
                     env.GIT_COMMIT = commit
@@ -108,7 +108,20 @@ pipeline {
             }
         }
 
-        // ===== Stage 4: 离线评测 =====
+        // ===== Stage 4: Maven 打包 =====
+        stage('Package') {
+            steps {
+                sh """
+                    echo "=== Maven 打包（跳过测试）==="
+                    ${MAVEN_HOME}/bin/mvn clean package -DskipTests
+                    echo ""
+                    echo "--- 生成的 JAR 包 ---"
+                    find . -name "*.jar" -path "*/target/*" | grep -v original | sort
+                """
+            }
+        }
+
+        // ===== Stage 5: 离线评测 =====
         stage('Evaluation') {
             when { expression { params.RUN_EVAL } }
             steps {
@@ -165,19 +178,6 @@ for c in cases:
                     archiveArtifacts artifacts: 'eval_result*.json', allowEmptyArchive: true
                     sh 'docker compose down 2>/dev/null || true'
                 }
-            }
-        }
-
-        // ===== Stage 5: Maven 打包 =====
-        stage('Package') {
-            steps {
-                sh """
-                    echo "=== Maven 打包（跳过测试）==="
-                    ${MAVEN_HOME}/bin/mvn clean package -DskipTests
-                    echo ""
-                    echo "--- 生成的 JAR 包 ---"
-                    find . -name "*.jar" -path "*/target/*" | grep -v original | sort
-                """
             }
         }
 

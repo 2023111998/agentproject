@@ -17,6 +17,7 @@
 // ============================================================================
 
 pipeline {
+    options { skipDefaultCheckout() }
     agent any
 
     environment {
@@ -57,9 +58,9 @@ pipeline {
         // ===== Stage 1: 代码检出 =====
         stage('Checkout') {
             steps {
-                checkout scm
+                sh 'cp -r /mnt/campus-assistant-java/. .'
                 script {
-                    def commit = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+                    def commit = 'mounted'
                     env.GIT_COMMIT = commit
                     env.DOCKER_TAG = params.DOCKER_TAG_OVERRIDE ?: "${env.BUILD_NUMBER}-${commit}"
                     echo "Branch: ${env.BRANCH_NAME}, Build: #${env.BUILD_NUMBER}, Commit: ${commit}"
@@ -347,36 +348,38 @@ for c in cases:
         success {
             script {
                 def fullImage = "${DOCKER_REGISTRY}/${DOCKER_IMAGE}-campus-server:${env.DOCKER_TAG}"
-                emailext(
-                    subject: "✅ [${env.JOB_NAME}] Build #${env.BUILD_NUMBER} 成功 — ${params.DEPLOY_ENV}",
-                    body: """
-                        <h3>构建成功 ✅</h3>
-                        <table border="1" cellpadding="6" style="border-collapse:collapse">
-                            <tr><td><b>项目</b></td><td>校园电商/外卖智能服务平台 (Java)</td></tr>
-                            <tr><td><b>构建号</b></td><td>#${env.BUILD_NUMBER}</td></tr>
-                            <tr><td><b>分支</b></td><td>${env.BRANCH_NAME}</td></tr>
-                            <tr><td><b>提交</b></td><td>${env.GIT_COMMIT}</td></tr>
-                            <tr><td><b>环境</b></td><td>${params.DEPLOY_ENV}</td></tr>
-                            <tr><td><b>镜像 Tag</b></td><td>${env.DOCKER_TAG}</td></tr>
-                            <tr><td><b>评测</b></td><td>${params.RUN_EVAL ? '已运行' : '已跳过'}</td></tr>
-                            <tr><td><b>K8s 命名空间</b></td><td>${K8S_NAMESPACE}</td></tr>
-                        </table>
-                        <p><a href="${env.BUILD_URL}">查看构建详情 →</a></p>
-                        <p>主要镜像: ${fullImage}</p>
-                    """,
-                    to: 'notify-email'
+                echo 'Build notification: '  // emailext disabled - no SMTP
+            // emailext(
+//                     subject: "✅ [${env.JOB_NAME}] Build #${env.BUILD_NUMBER} 成功 — ${params.DEPLOY_ENV}",
+//                     body: """
+//                         <h3>构建成功 ✅</h3>
+//                         <table border="1" cellpadding="6" style="border-collapse:collapse">
+//                             <tr><td><b>项目</b></td><td>校园电商/外卖智能服务平台 (Java)</td></tr>
+//                             <tr><td><b>构建号</b></td><td>#${env.BUILD_NUMBER}</td></tr>
+//                             <tr><td><b>分支</b></td><td>${env.BRANCH_NAME}</td></tr>
+//                             <tr><td><b>提交</b></td><td>${env.GIT_COMMIT}</td></tr>
+//                             <tr><td><b>环境</b></td><td>${params.DEPLOY_ENV}</td></tr>
+//                             <tr><td><b>镜像 Tag</b></td><td>${env.DOCKER_TAG}</td></tr>
+//                             <tr><td><b>评测</b></td><td>${params.RUN_EVAL ? '已运行' : '已跳过'}</td></tr>
+//                             <tr><td><b>K8s 命名空间</b></td><td>${K8S_NAMESPACE}</td></tr>
+//                         </table>
+//                         <p><a href="${env.BUILD_URL}">查看构建详情 →</a></p>
+//                         <p>主要镜像: ${fullImage}</p>
+//                     """,
+            // to: 'notify-email'  -- disabled
                 )
             }
         }
         failure {
-            emailext(
-                subject: "❌ [${env.JOB_NAME}] Build #${env.BUILD_NUMBER} 失败",
-                body: """
-                    <h3>构建失败 ❌</h3>
-                    <p>阶段: <b>${env.FAILED_STAGE ?: '未知'}</b></p>
-                    <p>请检查 <a href="${env.BUILD_URL}">构建日志</a></p>
-                """,
-                to: 'notify-email'
+            echo 'Build notification: '  // emailext disabled - no SMTP
+            // emailext(
+//                 subject: "❌ [${env.JOB_NAME}] Build #${env.BUILD_NUMBER} 失败",
+//                 body: """
+//                     <h3>构建失败 ❌</h3>
+//                     <p>阶段: <b>${env.FAILED_STAGE ?: '未知'}</b></p>
+//                     <p>请检查 <a href="${env.BUILD_URL}">构建日志</a></p>
+//                 """,
+            // to: 'notify-email'  -- disabled
             )
         }
     }

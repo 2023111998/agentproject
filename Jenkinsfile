@@ -58,7 +58,7 @@ pipeline {
         // ===== Stage 1: 代码检出 =====
         stage('Checkout') {
             steps {
-                sh 'cp -r /mnt/campus-assistant-java/. .'
+                sh 'cp -r /mnt/campus-assistant-java/* . 2>/dev/null; cp -r /mnt/campus-assistant-java/.[!.]* . 2>/dev/null; rm -rf .git; true'
                 script {
                     def commit = 'local'
                     env.GIT_COMMIT = commit

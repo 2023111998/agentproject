@@ -1,0 +1,52 @@
+# ============================================================================
+# 校园电商/外卖智能服务平台 — Java 重构版 Docker 构建排除
+# 减少构建上下文，加速 docker build
+# ============================================================================
+
+# ── Git ──
+.git/
+.gitignore
+.gitattributes
+
+# ── Maven / Build 临时产物 ──
+**/.m2/
+*.class
+*.war
+
+# 注意: 不排除 **/target/ 和 *.jar，
+# 因为 Dockerfile 的 COPY 需要 Maven 打包好的 JAR
+
+# ── IDE ──
+.idea/
+*.iml
+.vscode/
+.project
+.classpath
+.settings/
+*.swp
+*.swo
+*~
+
+# ── OS / 杂项 ──
+.DS_Store
+Thumbs.db
+*.log
+*.tmp
+
+# ── CI/CD (不需要打包进镜像) ──
+Jenkinsfile
+Jenkinsfile.bak
+Jenkinsfile.backup
+.jenkins/
+
+# ── 文档 (非运行时需要) ──
+README.md
+CLAUDE.md
+ARCHITECTURE.md
+*.md.bak
+docs/
+
+# ── Python 版残留 (如有复制对比) ──
+*.py
+*.pyc
+__pycache__/

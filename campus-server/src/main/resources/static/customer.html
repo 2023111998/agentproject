@@ -198,6 +198,8 @@ createApp({
       const d = await api.chat(t, user.id); addChat(d.reply||'(无)', 'bot');
       chatIntent.value = d.intent||'-'; chatLat.value = (d.latency!=null?d.latency+'s':'-'); chatTrace.value = d.trace||'';
       if (d.map_data) renderMap('mapContainer', d.map_data);
+      // 智能助理下单/售后操作后自动刷新订单列表
+      if (d.intent === '下单' || d.intent === '售后') { loadData(); }
     }
     function quickAsk(q) { chatInput.value = q; chatSend(); }
 

@@ -1,0 +1,15 @@
+# ============================================================================
+# Grafana 仪表盘自动加载配置
+# ============================================================================
+apiVersion: 1
+
+providers:
+  - name: 'campus-dashboards'
+    orgId: 1
+    folder: 'Campus Assistant'
+    type: file
+    disableDeletion: false
+    editable: true
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards

@@ -1,0 +1,293 @@
+{
+  "__inputs": [],
+  "__requires": [
+    { "type": "grafana", "id": "grafana", "name": "Grafana", "version": "10.0.0" },
+    { "type": "panel", "id": "timeseries", "name": "Time series", "version": "" },
+    { "type": "panel", "id": "stat", "name": "Stat", "version": "" },
+    { "type": "panel", "id": "gauge", "name": "Gauge", "version": "" },
+    { "type": "panel", "id": "table", "name": "Table", "version": "" },
+    { "type": "panel", "id": "piechart", "name": "Pie chart", "version": "" }
+  ],
+  "annotations": { "list": [] },
+  "description": "校园电商/外卖智能服务平台 — 服务质量监控面板",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "type": "row",
+      "title": "📊 概览",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 }
+    },
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "可用性 (Availability)",
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "red", "value": null }, { "color": "orange", "value": 95 },
+            { "color": "yellow", "value": 99 }, { "color": "green", "value": 99.9 }
+          ]},
+          "mappings": [], "min": 0, "max": 100
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(http_server_requests_seconds_count{status=~\"2..\"}[5m])) / sum(rate(http_server_requests_seconds_count[5m])) * 100",
+          "legendFormat": "Availability %",
+          "refId": "A"
+        }
+      ],
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 1 }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "吞吐量 (Throughput — RPS)",
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "red", "value": null }, { "color": "orange", "value": 0.5 },
+            { "color": "yellow", "value": 1 }, { "color": "green", "value": 5 }
+          ]}
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(http_server_requests_seconds_count[1m]))",
+          "legendFormat": "RPS",
+          "refId": "A"
+        }
+      ],
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 1 }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "P95 响应延迟",
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green", "value": null }, { "color": "yellow", "value": 0.3 },
+            { "color": "orange", "value": 1 }, { "color": "red", "value": 3 }
+          ]}
+        }
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket[5m])) by (le))",
+          "legendFormat": "P95",
+          "refId": "A"
+        }
+      ],
+      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 1 }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "错误率 (Error Rate)",
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green", "value": null }, { "color": "yellow", "value": 1 },
+            { "color": "orange", "value": 5 }, { "color": "red", "value": 10 }
+          ]},
+          "mappings": [], "min": 0, "max": 100
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(http_server_requests_seconds_count{status=~\"5..\"}[5m])) / sum(rate(http_server_requests_seconds_count[5m])) * 100",
+          "legendFormat": "Error %",
+          "refId": "A"
+        }
+      ],
+      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 1 }
+    },
+    {
+      "type": "row",
+      "title": "📈 服务层指标",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 7 }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "请求速率 (按服务)",
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": { "lineWidth": 2, "fillOpacity": 10, "stacking": { "mode": "none" } }
+        }
+      },
+      "targets": [
+        { "expr": "sum(rate(http_server_requests_seconds_count{uri!~\"/actuator.*\"}[1m])) by (service)", "legendFormat": "{{service}}", "refId": "A" }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 }
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "P50 / P95 / P99 延迟",
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "lineWidth": 2, "fillOpacity": 5 }
+        }
+      },
+      "targets": [
+        { "expr": "histogram_quantile(0.50, sum(rate(http_server_requests_seconds_bucket[5m])) by (le))", "legendFormat": "P50", "refId": "A" },
+        { "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket[5m])) by (le))", "legendFormat": "P95", "refId": "B" },
+        { "expr": "histogram_quantile(0.99, sum(rate(http_server_requests_seconds_bucket[5m])) by (le))", "legendFormat": "P99", "refId": "C" }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 }
+    },
+    {
+      "id": 20,
+      "type": "timeseries",
+      "title": "HTTP 状态码分布",
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "lineWidth": 2, "stacking": { "mode": "normal" } }
+        }
+      },
+      "targets": [
+        { "expr": "sum(rate(http_server_requests_seconds_count[1m])) by (status)", "legendFormat": "HTTP {{status}}", "refId": "A" }
+      ],
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 16 }
+    },
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "断路器状态 (Resilience4j)",
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "lineWidth": 2 }
+        }
+      },
+      "targets": [
+        { "expr": "resilience4j_circuitbreaker_state{state=\"open\"}", "legendFormat": "{{name}} - OPEN", "refId": "A" },
+        { "expr": "resilience4j_circuitbreaker_calls_seconds_count", "legendFormat": "{{name}} calls", "refId": "B" }
+      ],
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 16 }
+    },
+    {
+      "type": "row",
+      "title": "🖥️ 系统资源 (JVM)",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 22 }
+    },
+    {
+      "id": 30,
+      "type": "timeseries",
+      "title": "JVM 内存使用",
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": { "lineWidth": 2, "stacking": { "mode": "none" } }
+        }
+      },
+      "targets": [
+        { "expr": "sum(jvm_memory_used_bytes{area=\"heap\"}) by (service)", "legendFormat": "{{service}} heap", "refId": "A" },
+        { "expr": "sum(jvm_memory_max_bytes{area=\"heap\"}) by (service)", "legendFormat": "{{service}} heap max", "refId": "B" }
+      ],
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 23 }
+    },
+    {
+      "id": 31,
+      "type": "timeseries",
+      "title": "GC 暂停时间",
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "lineWidth": 2 }
+        }
+      },
+      "targets": [
+        { "expr": "rate(jvm_gc_pause_seconds_sum[1m]) / rate(jvm_gc_pause_seconds_count[1m])", "legendFormat": "GC pause avg", "refId": "A" }
+      ],
+      "gridPos": { "h": 6, "w": 8, "x": 8, "y": 23 }
+    },
+    {
+      "id": 32,
+      "type": "gauge",
+      "title": "CPU 使用率",
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0, "max": 100,
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green", "value": null }, { "color": "yellow", "value": 50 },
+            { "color": "orange", "value": 70 }, { "color": "red", "value": 90 }
+          ]}
+        }
+      },
+      "targets": [
+        { "expr": "system_cpu_usage * 100", "legendFormat": "CPU", "refId": "A" }
+      ],
+      "gridPos": { "h": 6, "w": 8, "x": 16, "y": 23 }
+    },
+    {
+      "type": "row",
+      "title": "📋 各服务 SLA 明细",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 29 }
+    },
+    {
+      "id": 40,
+      "type": "table",
+      "title": "服务端口映射与健康状态",
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": {
+        "defaults": { "custom": { "align": "center" } }
+      },
+      "targets": [
+        {
+          "expr": "up",
+          "legendFormat": "{{service}}",
+          "refId": "A",
+          "format": "table",
+          "instant": true
+        }
+      ],
+      "transformations": [
+        { "id": "organize", "options": {
+          "excludeByName": { "Time": true, "__name__": true, "instance": true, "job": true },
+          "renameByName": { "service": "服务名称", "Value": "健康状态 (1=UP)" }
+        }}
+      ],
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 30 }
+    }
+  ],
+  "refresh": "10s",
+  "schemaVersion": 38,
+  "tags": ["campus", "sla", "microservices"],
+  "templating": { "list": [] },
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "🏫 Campus Assistant — 服务质量监控",
+  "uid": "campus-sla-dashboard",
+  "version": 1
+}

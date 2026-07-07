@@ -207,11 +207,29 @@ pipeline {
         // ===== Stage 8: 部署到 K8s =====
         stage('Deploy to Kubernetes') {
             steps {
-                echo "⚠️ K8s 部署跳过（dev 模式）"
-            }
+            echo "⚠️ K8s 部署跳过（dev 模式）"
         }
     }
-    */
+}
+
+// ===== 后置操作 =====
+post {
+    always {
+        cleanWs(deleteDirs: true,
+                patterns: [[pattern: '*/target/', type: 'INCLUDE'],
+                           [pattern: '.m2/', type: 'INCLUDE']])
+    }
+    success {
+        script {
+            def fullImage = "${DOCKER_REGISTRY}/${DOCKER_IMAGE}-campus-server:${env.DOCKER_TAG}"
+            echo "Build notification: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
+        }
+    }
+    failure {
+        echo "Build notification: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
+    }
+}
+
 
                         sh """
                             echo "============================================"

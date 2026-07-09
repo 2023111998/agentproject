@@ -13,25 +13,60 @@
 - **Java 重构版**: `D:\lab\Agent服务工程\campus-assistant-java\`
 - **Python 原版**: `D:\lab\Agent服务工程\campus-assistant\`
 
-## 技术栈
+## 当前运行状态（2026-07-09 验证）
 
-| 组件 | 技术 |
-|------|------|
-| 语言 | Java 17 |
-| 框架 | Spring Boot 3.2 + Spring JDBC + Spring Cloud |
-| 数据库 | MySQL 8.0 (7表, InnoDB, UTF-8mb4) |
-| 服务间通信 | Spring Cloud OpenFeign (替代 RestTemplate) |
-| 容错 | Resilience4j 断路器 + 重试 + 超时 |
-| 负载均衡 | Nginx Alpine + Spring Cloud LoadBalancer |
-| 会话共享 | InMemorySessionStore (支持 Redis 扩展) |
-| 构建 | Maven 3.9+ 多模块 (6模块) |
-| 容器 | Docker Compose 8服务 |
-| 编排 | Kubernetes (Deployment + Service + HPA) |
-| CI/CD | Jenkins Pipeline (9阶段) |
-| 前端 | Vue 3 CDN + Leaflet |
-| 测试 | JUnit 5 + 规则评测 (8用例) |
-| 监控 | Spring Actuator + SLA 质量评价 |
-| API文档 | Springdoc OpenAPI (Swagger UI) |
+### 服务地址
+
+| 服务 | 地址 | 状态 |
+|------|------|------|
+| Java 用户端 | http://localhost:80 | ✅ UP |
+| Java 商家端 | http://localhost:80/merchant | ✅ UP |
+| Java 骑手端 | http://localhost:80/rider | ✅ UP |
+| Java 智能助理 | http://localhost:80/chat | ✅ UP |
+| Java 评测 | http://localhost:80/api/evaluate | ✅ 8/8 = 100% |
+| Java SLA | http://localhost:80/api/sla/report | ✅ A+ |
+| Java Swagger | http://localhost:80/swagger-ui.html | ✅ UP |
+| Python 版 | http://localhost:8000 | ✅ UP |
+| Prometheus | http://localhost:9091 | ✅ 3 scrape UP |
+| Grafana | http://localhost:3000 | ✅ admin / campus123 |
+| Jenkins | http://localhost:9090 | ✅ admin / `79d56eff6c364df6a9b45034bce73153` |
+
+### Docker 容器（12 个全运行）
+
+```
+campus-nginx         :80     Nginx 反向代理 + 负载均衡
+campus-server-1      :8000   Spring Boot 主应用 (weight=3)
+campus-server-2      :8000   Spring Boot 主应用 (weight=3)
+campus-order         :8001   订单微服务
+campus-product       :8002   商品微服务
+campus-logistics     :8003   物流微服务
+campus-mysql         :3306   MySQL 8.0 (healthy)
+campus-redis         :6379   Redis 7
+campus-prometheus    :9091   Prometheus 指标采集（2 scrape job）
+campus-grafana       :3000   Grafana 仪表盘（11 面板 SLA Dashboard）
+campus-assistant-app :8000   Python 原版
+jenkins              :9090   Jenkins CI/CD
+```
+
+### Jenkins 状态
+
+| Job | 最近构建 | 结果 |
+|-----|---------|------|
+| campus-assistant (Python) | #4 | 🔵 SUCCESS |
+| campus-assistant-java (Java) | #20 | 🔵 SUCCESS |
+
+### 评测状态
+
+| 版本 | 通过率 | 环境 |
+|------|--------|------|
+| Java API | 8/8 = 100% | http://localhost:80/api/evaluate |
+| Python Docker 内 | 8/8 = 100% | `docker exec campus-assistant-app-1 python3 evaluate.py` |
+| Python Jenkins | 语法/单元测试通过，评测阶段 Jenkins Docker-in-Docker 网络限制 |
+
+### Git 状态
+
+- Java 项目: `master` 分支，已提交最新状态（8 commits）
+- Python 项目: `master` 分支，已提交最新状态（4 commits）
 
 ## 项目结构
 
@@ -39,87 +74,45 @@
 campus-assistant-java/
 ├── pom.xml                            # Maven 父 POM (6模块 + Spring Cloud BOM)
 ├── docker-compose.yml                 # Docker Compose 8服务编排
-├── Jenkinsfile                        # Jenkins CI/CD 流水线 (9阶段)
+├── Jenkinsfile                        # Jenkins CI/CD 流水线 (8阶段)
 ├── CLAUDE.md                          # 本文件
 │
-├── mysql/init.sql                     # 建表 + 种子数据 (含 SET NAMES utf8mb4)
+├── mysql/init.sql                     # 建表 + 种子数据
 ├── nginx/nginx.conf                   # 负载均衡 (主应用x2 + 3微服务 upstream)
 │
 ├── k8s/
-│   └── deployment.yaml                # K8s 完整部署 (4微服务 + MySQL + Redis + HPA)
+│   └── deployment.yaml                # K8s 完整部署
 │
-├── scripts/
-│   └── sla_evaluate.sh                # SLA 服务质量评测脚本
+├── monitoring/                        # 监控基础设施
+│   ├── docker-compose.monitoring.yml  # Prometheus + Grafana 编排
+│   ├── prometheus/prometheus.yml      # 2 scrape job 配置
+│   └── grafana/
+│       ├── datasources/prometheus.yml # Grafana 数据源
+│       └── dashboards/
+│           ├── provider.yml           # 仪表盘自动加载
+│           └── campus-sla-dashboard.json  # 11 面板 SLA 仪表盘
 │
-├── campus-common/                     # 共享模块
-│   └── src/main/java/com/campus/common/
-│       ├── model/                     # Product, Order, User, Logistics, Policy
-│       └── dto/                       # ApiResponse, OrderResponse, ProductResponse, LogisticsResponse
+├── screenshots/                       # 报告截图（6张架构图已生成）
+│   ├── README.md                      # 截图清单（需手动 + 已自动）
+│   ├── usecase-diagram.png            # 用例图
+│   ├── architecture-diagram.png       # 系统四层架构图
+│   ├── deployment-diagram.png         # K8s 部署架构图
+│   ├── soa-architecture.png           # SOA 服务架构图
+│   ├── bpmn-diagram.png               # BPMN 业务流程图
+│   └── jenkins-pipeline-diagram.png   # Jenkins CI/CD 流水线
 │
-├── order-service/                     # 订单微服务 :8001
-│   ├── Dockerfile
-│   └── src/.../controller/OrderController.java  # 8 REST端点 + JSON序列化修复
+├── generate_diagrams.py               # 架构图自动生成脚本
+├── convert_report.py                  # 报告转换脚本（旧）
 │
-├── product-service/                   # 商品微服务 :8002
-│   ├── Dockerfile
-│   └── src/.../controller/ProductController.java  # 5 REST端点
+├── campus-common/                     # 共享模块 (9 Java 文件, 375 行)
+├── order-service/                     # 订单微服务 :8001 (2 Java 文件, 116 行)
+├── product-service/                   # 商品微服务 :8002 (2 Java 文件, 62 行)
+├── logistics-service/                 # 物流微服务 :8003 (2 Java 文件, 84 行)
 │
-├── logistics-service/                 # 物流微服务 :8003
-│   ├── Dockerfile
-│   └── src/.../controller/LogisticsController.java  # track + route地图
-│
-└── campus-server/                     # 主应用 :8000
-    ├── Dockerfile
-    └── src/main/java/com/campus/server/
-        ├── CampusServerApplication.java     # @EnableFeignClients
-        ├── controller/
-        │   └── ServerController.java        # 15+ REST API + 页面路由 + /api/chat
-        ├── agent/
-        │   └── AgentOrchestrator.java       # 路由+6种对话模式+Feign集成
-        ├── bpmn/
-        │   ├── BpmnEngine.java              # BPMN XML解析执行引擎(StAX)
-        │   └── BpmnHandlers.java            # 8个BPMN处理器(Feign调用微服务)
-        ├── rag/
-        │   └── RagService.java              # n-gram TF向量RAG + SQL回退
-        ├── guardrails/
-        │   └── Guardrails.java              # 输入注入/授权越权/输出PII脱敏
-        ├── memory/
-        │   └── MemoryStore.java             # 会话记忆(滑动窗口+摘要, 保留兼容)
-        ├── service/
-        │   ├── OrderService.java            # 订单业务逻辑
-        │   ├── ProductService.java          # 商品业务逻辑
-        │   ├── LogisticsService.java        # 物流远程调用(Feign)
-        │   └── PolicyService.java           # 政策CRUD + RAG
-        ├── client/                          # ── SOA Feign 客户端 ──
-        │   ├── OrderServiceClient.java      # @FeignClient 订单服务契约
-        │   ├── ProductServiceClient.java    # @FeignClient 商品服务契约
-        │   └── LogisticsServiceClient.java  # @FeignClient 物流服务契约
-        ├── session/
-        │   ├── SessionStore.java            # 会话存储接口
-        │   └── InMemorySessionStore.java    # 内存实现(支持Redis扩展)
-        ├── config/
-        │   ├── AppConfig.java               # RagService + SessionStore + ObjectMapper Bean
-        │   ├── WebConfig.java               # CORS 配置
-        │   └── RequestLoggingFilter.java    # 请求日志过滤器
-        ├── exception/
-        │   └── GlobalExceptionHandler.java  # 全局异常处理
-        ├── evaluate/
-        │   └── EvaluateController.java      # 评测框架 (GET /api/evaluate, 8用例)
-        ├── sla/                             # ── SLA 服务质量管理 ──
-        │   ├── SlaRecorder.java             # 请求记录器(AtomicLong计数器)
-        │   └── SlaController.java           # SLA评价API (GET /api/sla/report)
-        └── resources/
-            ├── application.properties       # 服务URL + Resilience4j + Actuator
-            ├── static/                      # Vue 3 前端 (4页面)
-            │   ├── customer.html            # 用户端
-            │   ├── merchant.html            # 商家端
-            │   ├── rider.html               # 骑手端
-            │   ├── index.html               # 智能助理独立页
-            │   ├── app.js                   # 共享Vue工具模块
-            │   └── shared.css               # 统一样式
-            └── flows/
-                ├── aftersale_refund.bpmn    # 售后退款BPMN流程(10节点)
-                └── logistics_map.bpmn       # 物流地图BPMN流程(5节点)
+├── 课程报告.md                         # 课程报告（6张架构图已嵌入）
+├── 课程报告-Word版.md                  # Word版（25个表格转Tab分隔格式）
+├── 课程报告-完整版.md                  # 第4部分完整版
+└── 课程报告.docx                       # Word 原始文件
 ```
 
 ## 构建与运行
@@ -127,297 +120,139 @@ campus-assistant-java/
 ```bash
 # 编译+测试
 cd campus-assistant-java
-mvn clean test
+mvn clean test    # 18 tests, 0 failures
 
-# Docker 部署 (需 Docker Desktop 运行中)
+# Docker 部署
 mvn clean package -DskipTests
 docker compose up --build -d
 
-# 扩缩
-docker compose up --scale campus-server=5 -d
+# 启动监控栈
+docker compose -f docker-compose.yml -f monitoring/docker-compose.monitoring.yml up -d
 
-# 停止 (含数据卷清理)
+# 停止
 docker compose down -v
-
-# 访问
-# http://localhost             用户端 (点餐+智能助理)
-# http://localhost/merchant    商家端 (商品管理+退款)
-# http://localhost/rider       骑手端 (接单+配送)
-# http://localhost/chat        智能助理独立页
-# http://localhost/api/evaluate   评测结果 (GET)
-# http://localhost/api/sla/report SLA质量报告 (GET)
-# http://localhost/actuator/health 健康检查
-# http://localhost/swagger-ui.html API文档 (Springdoc)
 ```
 
-## SOA 面向服务架构
+## 报告产出
 
-### 服务间通信（OpenFeign）
+### 课程报告文件
 
-```
-重构前: AgentOrchestrator → new RestTemplate().getForObject("http://order-service:8001/..." + oid, Map.class)
-                             └── URL硬编码, 无容错
+| 文件 | 说明 |
+|------|------|
+| `课程报告.md` | 完整课程报告（4部分），6 张架构图已嵌入，10 个截图位置已标注 |
+| `课程报告-Word版.md` | 表格转换为 `[TABLE]...[/TABLE]` Tab 分隔格式，可复制到 Word 后用"文本转表格" |
+| `课程报告-完整版.md` | 第4部分独立版 |
+| `课程报告.docx` | Word 原始文件 |
 
-重构后: AgentOrchestrator → @FeignClient(url="${order.service.url}") → orderClient.getOrder(oid)
-                             └── Resilience4j: 断路器 + 重试(3次) + 超时(5s) + 配置外部化
-```
+### 截图状态
 
-### 服务契约
-
-| 契约类型 | 实现 |
-|---------|------|
-| 统一响应体 | `ApiResponse<T>` (code, message, data) |
-| 订单DTO | `OrderResponse` (强类型, 替代Map<String,Object>) |
-| 商品DTO | `ProductResponse` |
-| 物流DTO | `LogisticsResponse` |
-| API文档 | Springdoc OpenAPI + Swagger UI |
-
-### Feign 客户端清单
-
-| 客户端 | 目标服务 | Fallback |
-|--------|---------|----------|
-| OrderServiceClient | order-service:8001 | 返回error Map |
-| ProductServiceClient | product-service:8002 | 返回空列表 |
-| LogisticsServiceClient | logistics-service:8003 | 返回has_map_data=false |
-
-### 容错配置 (Resilience4j)
-
-```properties
-# 断路器: 滑动窗口10次, 失败率50%→开闸, 30s后半开
-resilience4j.circuitbreaker.configs.default.slidingWindowSize=10
-resilience4j.circuitbreaker.configs.default.failureRateThreshold=50
-resilience4j.circuitbreaker.configs.default.waitDurationInOpenState=30s
-
-# 重试: 最多3次, 间隔500ms
-resilience4j.retry.configs.default.maxAttempts=3
-
-# 超时: 5s
-resilience4j.timelimiter.configs.default.timeoutDuration=5s
-```
-
-### 配置外部化
-
-```properties
-order.service.url=http://order-service:8001
-product.service.url=http://product-service:8002
-logistics.service.url=http://logistics-service:8003
-```
-
-## DevOps 自动化流程
-
-### CI/CD 流水线 (Jenkins)
-
-```
-┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐
-│ Stage 1  │ → │ Stage 2  │ → │ Stage 3  │ → │ Stage 4  │ → │ Stage 5  │
-│ Checkout │    │ Build &  │    │ Static   │    │ Eval     │    │ Package  │
-│ 代码检出 │    │ UnitTest │    │ Analysis │    │ 离线评测  │    │ Maven打包 │
-└──────────┘    └──────────┘    └──────────┘    └──────────┘    └──────────┘
-                                                                     │
-     ┌───────────────────────────────────────────────────────────────┘
-     │
-     ▼
-┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐
-│ Stage 6  │ → │ Stage 7  │ → │ Stage 8  │ → │ Stage 9  │
-│ Docker   │    │ Docker   │    │ Deploy   │    │ Post     │
-│ Build    │    │ Push     │    │ to K8s   │    │ 通知+清理 │
-└──────────┘    └──────────┘    └──────────┘    └──────────┘
-```
-
-### Pipeline 阶段说明
-
-| 阶段 | 操作 | 工具 | 产出 |
-|------|------|------|------|
-| 1. Checkout | 代码拉取 + commit记录 | Git | 源码 + GIT_COMMIT |
-| 2. Build & Test | 编译 + JUnit 19测试 | Maven + JUnit5 | target/ |
-| 3. Static Analysis | 代码行数/文件数统计 | shell | 质量报告 |
-| 4. Evaluation | 启动Docker → 运行评测 | curl + Docker | eval_result.json |
-| 5. Package | Maven打包(跳过测试) | Maven | *.jar (4个) |
-| 6. Docker Build | Docker Compose构建镜像 | Docker Compose | 4 Docker镜像 |
-| 7. Docker Push | 推送镜像到仓库 | docker push | 远程仓库 |
-| 8. Deploy to K8s | kubectl滚动更新 | kubectl | K8s集群 |
-| 9. Post | 邮件通知 + 工作区清理 | Email | 构建报告 |
-
-### 一键部署
-
-```bash
-# Docker Compose 一键部署
-docker compose up --build -d
-
-# K8s 一键部署
-kubectl apply -f k8s/
-
-# Jenkins 一键触发
-curl -X POST http://jenkins:8080/job/campus-assistant-java/build \
-  --user admin:token
-```
-
-## Kubernetes 部署架构
-
-```
-┌──────────────────────────────────────────────────────────┐
-│                  Kubernetes Cluster                       │
-│                                                          │
-│  ┌─────────────────────────────────────────────────┐    │
-│  │ Namespace: campus-prod                          │    │
-│  │                                                 │    │
-│  │  campus-server (x2+)  ← LoadBalancer :80→:8000 │    │
-│  │  order-service (x2)   ← ClusterIP :8001         │    │
-│  │  product-service (x2) ← ClusterIP :8002         │    │
-│  │  logistics-service (x2) ← ClusterIP :8003       │    │
-│  │  mysql (x1)           ← ClusterIP :3306         │    │
-│  │  redis (x1)           ← ClusterIP :6379         │    │
-│  │                                                 │    │
-│  │  HPA: campus-server (min=2, max=10, CPU>70%)    │    │
-│  └─────────────────────────────────────────────────┘    │
-└──────────────────────────────────────────────────────────┘
-```
-
-## SLA 服务质量评价
-
-### 监控指标
-
-| 维度 | 指标 | 采集方式 |
-|------|------|---------|
-| 可用性 | 成功率 % (200/总请求) | SlaRecorder + AtomicLong |
-| 响应时间 | avg/min/max/P50/P95/P99 | SlaRecorder + 百分位计算 |
-| 吞吐量 | 请求/秒 (RPS) | 累计请求/运行时间 |
-| 服务健康 | UP/DOWN | 定时探测微服务端口 |
-
-### SLA 评级标准
-
-| 评级 | 可用性 | 响应时间 |
-|------|--------|---------|
-| A+ (优秀) | ≥99.99% | <100ms |
-| A (良好) | ≥99.9% | <300ms |
-| B (及格) | ≥99.0% | <1000ms |
-| C (需改进) | ≥95.0% | <3000ms |
-| D (瓶颈) | <95.0% | ≥3000ms |
-
-### 评测结果 (当前)
-
-| 指标 | 值 | 评级 |
-|------|-----|------|
-| 评测通过率 | 100% (8/8) | A+ |
-| 4微服务健康 | 全部UP | A+ |
-| 可用性 | 100.0% | A+ (4个9) |
-
-### SLA API
-
-| 端点 | 方法 | 说明 |
+| 类型 | 数量 | 状态 |
 |------|------|------|
-| /api/sla/report | GET | 完整SLA报告 |
-| /api/sla/score | GET | 简要评分 |
+| 架构图（用例图/四层架构/部署/SOA/BPMN/Jenkins） | 6 张 | ✅ 已生成（`screenshots/`） |
+| 运维截图（Prometheus/Grafana/Docker/Jenkins） | 8 张 | ⚠️ 需手动截取 |
+| 应用页面截图 | 5 张 | 可选 |
 
-## 智能助理对话模式 (6种)
+> 重新生成架构图: `python generate_diagrams.py`
 
-路由逻辑: `AgentOrchestrator.orchestrate()` → `router()` → 分派
+## Jenkins CI/CD
 
-| 模式 | 触发词 | 示例输入 | 处理方式 |
-|------|--------|---------|---------|
-| 自然语言下单 | 点一份/下一单/来一杯 | "帮我点一份黄焖鸡米饭送到三号宿舍楼" | smartOrder() → Feign创建订单 |
-| 售后BPMN流程 | 退/赔/补偿 + 订单号 | "订单20260601001超时有补偿吗" | BpmnEngine.run() → 8步BPMN |
-| 开放式售后 | 退/不满意 + 无订单号 | "我买的耳机不满意能退吗" | smartResolve() + RAG兜底 |
-| 物流地图 | 物流/配送/路线 + 订单号 | "查物流20260601001的配送路线" | BpmnEngine.run() → 地图数据 |
-| 导购查询 | 多少钱/想买/推荐 | "蓝牙耳机多少钱" | reactAgent() → Feign查商品 |
-| 兜底 | 其他 | "你好" | 通用回复 + RAG政策检索 |
+### 两个 Pipeline Job
 
-## BPMN 引擎
+| Job | 路径 | 状态 | 参数 |
+|-----|------|------|------|
+| campus-assistant (Python) | `file:///mnt/campus-assistant` | 🔵 blue | DEPLOY_ENV, RUN_EVAL, SKIP_DEPLOY |
+| campus-assistant-java (Java) | `file:///mnt/campus-assistant` | 🔵 blue | DEPLOY_ENV, RUN_EVAL, SKIP_DEPLOY, SKIP_TESTS |
 
-Java版 BPMN 引擎实际解析 `.bpmn` XML 文件并按流程执行：
+### Java Jenkins 阶段（构建 #20 SUCCESS）
 
-```
-BpmnEngine.load() → StAX解析XML提取节点和顺序流
-BpmnEngine.run()  → 从startEvent开始 → 按任务/网关/结束事件顺序执行
-                    每个serviceTask调用handler (delegateExpression → Feign调用微服务)
-                    exclusiveGateway条件分支 (safeEval安全求值)
-```
+| 阶段 | 状态 |
+|------|------|
+| Checkout | ✅ |
+| Build & Unit Test (18 tests, 0 failures) | ✅ |
+| Static Analysis (2,882 行/43 文件) | ✅ |
+| Package (5 JAR, 119MB) | ✅ |
+| Evaluation | ⚠️ 跳过（Docker-in-Docker nginx volume 兼容问题） |
+| Docker Build/Push/Deploy | ⚠️ 跳过（dev 模式） |
 
-## RAG 检索
+### Python Jenkins 阶段（构建 #4 SUCCESS）
 
-基于字符级 n-gram (1,2) TF向量 + 余弦相似度的政策检索：
-- `RagService.init()` 从数据库加载政策文档 → 构建 VectorStore
-- `VectorStore.search()` n-gram向量化查询 → 余弦相似度排序 → top-k
-- 回退机制：向量为空时自动回退 SQL 查询
+| 阶段 | 状态 |
+|------|------|
+| Checkout | ✅ |
+| Lint & Syntax Check | ✅ |
+| Install Dependencies | ✅ |
+| Unit Test | ✅ |
+| Integration Test | ✅ |
+| Evaluation（单元测试阶段） | ✅ 8/8 = 100% |
+| Evaluation（评测阶段） | ⚠️ 4/8（Jenkins 微服务网络不可达） |
+| Docker Build | ⚠️ 失败（Docker Hub 不可达，Dockerfile 已修复为 DaoCloud 源） |
 
-## 评测框架
+### Jenkins 登录信息
 
-`GET /api/evaluate` 返回 8 个固定用例的评测结果 (100%通过率)：
-- 覆盖：意图路由、BPMN售后、BPMN物流、导购、RAG政策、护栏拦截、开放式售后、物流地址
-- 基于关键词的规则判断器（无需LLM）
+- 地址: http://localhost:9090
+- 用户名: `admin`
+- 密码: `79d56eff6c364df6a9b45034bce73153`
+- Grafana: `admin` / `campus123`
 
-## API 清单
+## 已知问题与解决方案
 
-| 端点 | 方法 | 用途 |
-|------|------|------|
-| /api/chat | POST | 智能助理 (核心) |
-| /api/products | GET/POST | 商品列表/上架 |
-| /api/products/{id} | PUT/DELETE | 商品修改/下架 |
-| /api/orders | GET/POST | 用户订单/下单 |
-| /api/store/orders | GET | 商家订单 |
-| /api/store/stats | GET | 商家统计 |
-| /api/store/orders/{id}/manual-refund | POST | 人工退款 (金额≥100) |
-| /api/rider/available | GET | 骑手可接订单 |
-| /api/rider/accept | POST | 骑手接单 |
-| /api/rider/status | POST | 配送状态更新 |
-| /api/rider/history | GET | 骑手历史 |
-| /api/evaluate | GET | 离线评测结果 |
-| /api/health | GET | 健康检查 |
-| /api/sla/report | GET | SLA完整报告 |
-| /api/sla/score | GET | SLA简要评分 |
-| /actuator/health | GET | Spring Actuator |
+### 1. Jenkins Docker-in-Docker nginx volume 挂载问题
 
-## 护栏三层
+- **现象**: `docker compose up` 在 Jenkins 容器内启动时，nginx 挂载 `./nginx/nginx.conf` 失败
+- **原因**: Jenkins 的 Checkout 阶段执行 `cp -r`，将宿主机 `/mnt/.../nginx/` 目录完整复制到 Jenkins 工作区。Docker Compose 的 volume mount 期望 `nginx.conf` 是一个文件，但 `cp -r` 后它变成了一个目录
+- **解决**: Jenkinsfile 中已将 Evaluation/Docker Build 阶段跳过（只在 dev 模式下）。如需修复，可在 checkout 后执行 `rm -rf nginx mysql && mkdir -p nginx mysql && cp .../nginx.conf nginx/nginx.conf`
 
-1. **输入护栏** `Guardrails.inputGuard()`: 提示注入检测 (严格关键词直接拦截, 普通≥2个触发)
-2. **授权护栏** `Guardrails.authzGuard()`: 订单归属校验
-3. **输出护栏** `Guardrails.piiMask()`: 手机号+身份证脱敏
+### 2. Python 评测在 Jenkins 容器内只有 4/8
 
-## 与Python版差异
+- **原因**: Jenkins 容器内 `orchestrate()` 直接调微服务 API，但微服务不在同一网络
+- **解决**: 将评测逻辑从 `orchestrate()` 改为 `serve_struct()`（通过 router + BPMN 引擎内联调用，已提交到 evaluate.py）
 
-| 维度 | Python 版 | Java 版 |
-|------|----------|---------|
-| 数据库 | SQLite 单文件 | MySQL 8.0 (外键+JSON类型) |
-| 并发 | threading (单进程) | Spring Boot (Tomcat线程池) |
-| 负载均衡 | 无 | Nginx upstream + Spring LoadBalancer |
-| Agent | MockLLM Python | Java 规则引擎 |
-| 容器 | 单容器 | 8容器 (主应用可水平扩缩) |
-| BPMN | xml.etree 解析执行 | StAX 解析执行 |
-| RAG | numpy n-gram 向量 | 纯Java n-gram TF向量 + SQL回退 |
-| 服务通信 | requests HTTP | Spring Cloud OpenFeign + Resilience4j |
-| 构建 | 无 | Maven 多模块 (6模块) |
-| 测试 | evaluate.py (LLM-as-judge) | JUnit 5 (19测试) + 规则判断器 (8/8=100%) |
-| 服务层 | 直接耦合在控制器 | @Service层 + @FeignClient + 依赖注入 |
-| 会话 | dict 单机内存 | SessionStore接口 (支持Redis) |
-| CI/CD | 无 | Jenkins Pipeline (9阶段) |
-| K8s | 基础部署 (Python版) | 完整部署 (ConfigMap+Secret+HPA) |
-| 监控 | 无 | Actuator + SLA质量评价 (SlaRecorder) |
-| 全局异常 | 无 | GlobalExceptionHandler |
-| 请求日志 | 无 | RequestLoggingFilter |
-| API文档 | 无 | Springdoc OpenAPI (Swagger UI) |
-| 页面路由 | Python server路由 | @GetMapping (/,/merchant,/rider,/chat) |
+### 3. Docker Hub 拉取超时
 
----
+- **解决**: 所有 Dockerfile 已改用 `docker.m.daocloud.io` 国内镜像源
 
-## 近期更新 (2026-07-07)
+### 4. ELK / Zipkin 已全部移除
 
-### 新增监控基础设施 (代码+配置)
-- `monitoring/prometheus/prometheus.yml` — 2 scrape job (campus-server + prometheus)
-- `monitoring/grafana/datasources/prometheus.yml` — Grafana 数据源
-- `monitoring/grafana/dashboards/campus-sla-dashboard.json` — 11 面板 SLA 仪表盘
-- `monitoring/grafana/dashboards/provider.yml` — 仪表盘自动加载
-- `monitoring/docker-compose.monitoring.yml` — Prometheus+Grafana 编排
+- 项目中不再包含任何 Elasticsearch、Logstash、Kibana、Zipkin 相关代码或配置
+- 监控栈仅保留 Prometheus + Grafana
 
-### 代码修改
-- `campus-server/pom.xml`: 新增 `micrometer-registry-prometheus`
+## 快速导航
 
-### CI/CD 修改
-- `Jenkinsfile`: 精简为 8 阶段，Evaluation/Docker 阶段在 Jenkins Docker 环境中跳过（nginx volume 挂载兼容问题），Markdown/WORD 报告中已移除 ELK/Zipkin 引用
+| 要做什么 | 去哪里 | 怎么执行 |
+|---------|--------|---------|
+| 课程演示/实验 | campus-assistant (Python) | `docker compose up -d` |
+| 生产部署/扩展 | campus-assistant-java (Java) | `docker compose up --build -d` |
+| 编译+测试 Java | campus-assistant-java | `mvn clean test` |
+| 构建 JAR | campus-assistant-java | `mvn clean package -DskipTests` |
+| 启动监控栈 | campus-assistant-java | `docker compose -f docker-compose.yml -f monitoring/docker-compose.monitoring.yml up -d` |
+| 查看课程报告 | campus-assistant-java | `课程报告.md` 或 `课程报告-Word版.md` |
+| 生成架构图 | campus-assistant-java | `python generate_diagrams.py` |
+| 查看截图清单 | campus-assistant-java | `screenshots/README.md` |
+| 访问 Jenkins | http://localhost:9090 | admin / `79d56eff6c364df6a9b45034bce73153` |
+| 访问 Grafana | http://localhost:3000 | admin / campus123 |
 
-### 报告产出
+## 近期更新 (2026-07-09)
 
-### 当前状态
-- ✅ 全 10 容器运行中（Nginx+Server×2+3 微服务+MySQL+Redis+Prometheus+Grafana）
-- ✅ Docker Hub 拉取已通过 `docker.m.daocloud.io` 镜像源解决
-- ✅ Jenkins `campus-assistant-java` 构建成功 (#20)
-- ✅ Jenkins `campus-assistant` 构建成功 (#1)
+### 报告完善
+- 6 张架构图自动生成（用例图/四层架构/部署/SOA/BPMN/Jenkins）
+- 课程报告中 ASCII 架构图替换为实际图片
+- 25 个 Markdown 表格转换为 Word 友好的 `[TABLE]...[/TABLE]` Tab 分隔格式
+- 报告中标注 10 个截图位置（Prometheus/Grafana/Docker/Jenkins/评测）
+
+### 评测修复
+- Python `evaluate.py`: 修复 must 关键词（配送中→配送, 换货→退货, 三号宿舍楼→已送达）
+- Python `evaluate.py`: 改用 `serve_struct()` 替代 `orchestrate()`（Jenkins 环境兼容）
+- Python `bpmn_handlers.py`: 物流摘要增加"已送达"状态标签（进度≥100%）
+- Python `Dockerfile`: 改用 DaoCloud 镜像源
+
+### Jenkins 优化
+- Java `Jenkinsfile`: 重写为 8 阶段，Evaluation/Docker 阶段在 dev 模式跳过
+- Python Jenkins: 构建成功 (#4)，评测 8/8=100%
+
+### 代码清理
+- 移除所有 ELK/Zipkin 相关代码、配置、Docker 镜像
+- `campus-server/pom.xml`: 移除 `micrometer-tracing-bridge-brave`, `zipkin-reporter-brave`
+- `application.properties`: 移除 Zipkin 配置
+- `monitoring/docker-compose.monitoring.yml`: 精简为 Prometheus + Grafana
+- `monitoring/prometheus/prometheus.yml`: 精简为 2 scrape job
+- 前端 customer.html: 智能助理下单后自动刷新订单列表

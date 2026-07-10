@@ -15,7 +15,9 @@ pipeline {
         K8S_NAMESPACE   = 'campus-prod'
         MAVEN_OPTS      = '-Dmaven.repo.local=.m2/repository'
         MAVEN_HOME      = tool name: 'maven-3', type: 'maven'
-        JENKINS_LOCAL_TEST = 'true'
+        JENKINS_LOCAL_TEST = 'false'
+        GIT_REPO_URL      = 'git@github.com:2023111998/agentproject.git'
+        GIT_BRANCH        = 'master'
     }
 
     parameters {

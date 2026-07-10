@@ -60,7 +60,7 @@ jenkins              :9090   Jenkins CI/CD
 
 ### Git 状态
 
-- Java 项目: `master` 分支，已提交最新状态（21 commits, 纯本地仓库无远程）
+- Java 项目: `master` 分支，已提交最新状态（23 commits, 远程: git@github.com:2023111998/agentproject.git）
 
 ### 代码规模
 

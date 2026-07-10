@@ -60,27 +60,43 @@ jenkins              :9090   Jenkins CI/CD
 
 ### Git 状态
 
-- Java 项目: `master` 分支，已提交最新状态（24 commits, 远程: git@github.com:2023111998/agentproject.git）
+- Java 项目: `master` 分支，已提交最新状态（29 commits, 远程: https://github.com/2023111998/agentproject）
+- 开发周期: 2026-07-06 至 2026-07-10 (5 天)
+- 工作区: 干净
 
 ### 代码规模
 
-```
-总文件数:   110 (排除 target/)
-总大小:     3.5 MB
-Java 文件:  43 个 (2,882 行)
+- Java 文件: 43 个 (2,882 行)
+  模块分布:
   campus-common:       375 行 ( 9 个文件)
   order-service:       116 行 ( 2 个文件)
   product-service:      62 行 ( 2 个文件)
   logistics-service:    84 行 ( 2 个文件)
   campus-server:     1,989 行 (24 个文件)
   test:                256 行 ( 4 个文件, 18 @Test)
-前端页面:     5 个 (541 行 HTML + 1 CSS + 1 JS)
-文档:       10 个 (.md, 3,679 行)
-配置文件:    18 个 (pom/docker-compose/nginx/properties/yaml/Dockerfile 等)
-截图:       16 张 (.png, 2.7 MB)
-  - 架构图 6 张 (usecase/architecture/deployment/soa/bpmn/jenkins)
-  - 运维截图 10 张 (evaluate/sla/docker/git/maven/static/health/prometheus/chat/jenkins)
-```
+- 前端页面: 5 个 (541 行 HTML + 1 CSS + 1 JS)
+- BPMN 流程: 2 个
+- 文档: 10 个 Markdown (3,679 行) + 1 个 .docx
+  课程报告: .md (1,073行) / Word版.md (1,141行) / 完整版.md (399行)
+  项目文档: CLAUDE.md / README.md / GIT_REPORT.md / PUSH_REPORT.md
+  截图输出汇总: 395 行
+- 配置文件: 18 个 (pom × 5 / Dockerfile × 4 / docker-compose / nginx / prometheus / grafana / k8s / .properties × 4 / .env.example)
+- 截图: 16 张 (.png, 2.7 MB)
+  架构图 6 张: usecase / architecture / deployment / soa / bpmn / jenkins
+  运维图 10 张: evaluate / sla / docker / git / maven / static / health / prometheus / chat / jenkins
+- 项目大小: 3.5 MB (排除 .git 和 target/)
+
+### 运行状态 (验证时间: 2026-07-10)
+
+- Docker 容器: 11 个全部 UP
+  MySQL: healthy (healthcheck 每 10s)
+  系统连续运行: 8,848 秒 (~2.5 小时)
+- 评测通过率: 8/8 = 100% (累计请求 9 次, 0 失败)
+- SLA 评级: 优秀 (A+ 4个9)
+- Prometheus: 3/3 targets UP
+- 平均延迟: 18ms (P95: 51ms)
+
+所有提交已推送到远程仓库: https://github.com/2023111998/agentproject
 
 ## 项目结构
 

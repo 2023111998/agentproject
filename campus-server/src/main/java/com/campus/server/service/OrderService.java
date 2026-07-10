@@ -1,5 +1,6 @@
 package com.campus.server.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
@@ -10,6 +11,7 @@ import java.util.*;
 public class OrderService {
 
     private final JdbcTemplate db;
+    private static final ObjectMapper objectMapper = new ObjectMapper();
 
     public OrderService(JdbcTemplate db) { this.db = db; }
 
@@ -36,10 +38,23 @@ public class OrderService {
     /** 创建订单 */
     public Map<String, Object> createOrder(Map<String, Object> body) {
         String oid = (String) body.getOrDefault("order_id", "ORD" + System.currentTimeMillis());
+        String itemsJson;
+        try {
+            Object itemsObj = body.get("items");
+            if (itemsObj instanceof String s) {
+                itemsJson = s;
+            } else if (itemsObj != null) {
+                itemsJson = objectMapper.writeValueAsString(itemsObj);
+            } else {
+                itemsJson = "[]";
+            }
+        } catch (Exception e) {
+            itemsJson = "[]";
+        }
         db.update(
             "INSERT INTO orders(id,user_id,store_id,items,amount,type,status,address) VALUES(?,?,?,?,?,?,?,?)",
             oid, body.get("user_id"), body.get("store_id"),
-            body.get("items") != null ? body.get("items").toString() : "[]",
+            itemsJson,
             body.getOrDefault("amount", 0), body.getOrDefault("type", "外卖"),
             "已下单", body.getOrDefault("address", ""));
         db.update("INSERT IGNORE INTO logistics(order_id,status) VALUES(?,?)", oid, "待配送");

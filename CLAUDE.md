@@ -60,7 +60,27 @@ jenkins              :9090   Jenkins CI/CD
 
 ### Git 状态
 
-- Java 项目: `master` 分支，已提交最新状态（8 commits）
+- Java 项目: `master` 分支，已提交最新状态（17 commits, 无远程仓库）
+
+### 代码规模
+
+```
+总文件数:   110 (排除 target/)
+总大小:     3.5 MB
+Java 文件:  43 个 (2,882 行)
+  campus-common:       375 行 ( 9 个文件)
+  order-service:       116 行 ( 2 个文件)
+  product-service:      62 行 ( 2 个文件)
+  logistics-service:    84 行 ( 2 个文件)
+  campus-server:     1,989 行 (24 个文件)
+  test:                256 行 ( 4 个文件, 18 @Test)
+前端页面:     5 个 (541 行 HTML + 1 CSS + 1 JS)
+文档:        7 个 (.md, 3,542 行)
+配置文件:    15 个 (pom/docker-compose/nginx/properties/yaml 等)
+截图:       16 张 (.png, 2.7 MB)
+  - 架构图 6 张 (usecase/architecture/deployment/soa/bpmn/jenkins)
+  - 运维截图 10 张 (evaluate/sla/docker/git/maven/static/health/prometheus/chat/jenkins)
+```
 
 ## 项目结构
 
@@ -216,22 +236,31 @@ docker compose down -v
 | 访问 Jenkins | http://localhost:9090 | admin / `79d56eff6c364df6a9b45034bce73153` |
 | 访问 Grafana | http://localhost:3000 | admin / campus123 |
 
-## 近期更新 (2026-07-09)
+## 近期更新 (2026-07-10)
 
 ### 项目简化
 - Python 版 `campus-assistant` Docker 容器已关闭并移除，Java 版作为唯一活跃版本
 - Top-level `CLAUDE.md` 已同步更新
 
 ### 报告完善
-- 6 张架构图自动生成（用例图/四层架构/部署/SOA/BPMN/Jenkins）
-- 课程报告中 ASCII 架构图替换为实际图片
-- 25 个 Markdown 表格转换为 Word 友好的 `[TABLE]...[/TABLE]` Tab 分隔格式
-- 报告中标注 10 个截图位置（Prometheus/Grafana/Docker/Jenkins/评测）
+- 6 张架构图 v2：修复中文字体(Microsoft YaHei)、BPMN菱形裁切、字号太小、DPI150→200
+- 报告严格对齐模板 4 部分结构：标题修正、缺失章节补充、Python对比移除
+- 38 个 `[TABLE]` Tab 分隔标记（Word 一键文本转表格）
+- 9 个小节深化：1.2/2.2/2.3/3.1/3.2/3.3/3.4/4.1/4.3
+- 截图输出汇总.md：10 个截图点的完整终端/API 输出
+- 新增 10 张运营截图 PNG
 
 ### 代码清理
+- `.gitignore` 排除 `target/` 目录
+- 移除所有 `target/` 下的构建产物（87 个已删除文件）
 - 移除所有 ELK/Zipkin 相关代码、配置、Docker 镜像
 - `campus-server/pom.xml`: 移除 `micrometer-tracing-bridge-brave`, `zipkin-reporter-brave`
 - `application.properties`: 移除 Zipkin 配置
 - `monitoring/docker-compose.monitoring.yml`: 精简为 Prometheus + Grafana
 - `monitoring/prometheus/prometheus.yml`: 精简为 2 scrape job
-- 前端 customer.html: 智能助理下单后自动刷新订单列表
+
+### Git
+- 17 次提交，分支 `master`，无远程仓库（纯本地）
+- 最新提交: `f55b65c` feat: 课程报告完善 + 架构图v2 + 截图输出 + CLAUDE.md更新
+
+## 近期更新 (2026-07-09) (历史)

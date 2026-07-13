@@ -43,14 +43,15 @@ pipeline {
                     def branch = 'unknown'
 
                     if (env.GIT_COMMIT && env.GIT_COMMIT != 'null') {
-                        // 从 Job SCM 环境变量取 commit，显式用 HTTPS clone
+                        // Job 从 SCM 获取 Jenkinsfile 后，这里直接用 HTTPS 从 GitHub clone
                         branch = env.BRANCH_NAME ?: env.GIT_BRANCH?.replace('origin/', '') ?: 'master'
-                        checkout([$class: 'GitSCM',
-                            branches: [[name: "refs/heads/${branch}"]],
-                            userRemoteConfigs: [[url: 'https://github.com/2023111998/agentproject.git']]
-                        ])
-                        commit = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
-                        echo "Git SCM checkout: ${branch} @ ${commit}"
+                        sh """
+                            rm -rf ./* ./.[!.]* 2>/dev/null || true
+                            git clone --depth 1 --branch ${branch} https://github.com/2023111998/agentproject.git .
+                            git rev-parse --short HEAD > .git_commit
+                        """
+                        commit = sh(script: 'cat .git_commit', returnStdout: true).trim()
+                        echo "Git HTTPS clone: ${branch} @ ${commit}"
                     } else if (env.GIT_URL) {
                         branch = env.GIT_BRANCH ?: env.BRANCH_NAME ?: 'main'
                         sh """

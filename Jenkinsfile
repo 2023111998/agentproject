@@ -16,7 +16,7 @@ pipeline {
         MAVEN_OPTS      = '-Dmaven.repo.local=.m2/repository'
         MAVEN_HOME      = tool name: 'maven-3', type: 'maven'
         JENKINS_LOCAL_TEST = 'false'
-        GIT_REPO_URL      = 'git@github.com:2023111998/agentproject.git'
+        GIT_REPO_URL      = 'https://github.com/2023111998/agentproject.git'
         GIT_BRANCH        = 'master'
     }
 
@@ -43,10 +43,14 @@ pipeline {
                     def branch = 'unknown'
 
                     if (env.GIT_COMMIT && env.GIT_COMMIT != 'null') {
-                        commit = env.GIT_COMMIT.take(7)
-                        branch = env.BRANCH_NAME ?: env.GIT_BRANCH?.replace('origin/', '') ?: 'unknown'
-                        echo "Git checkout: ${branch} @ ${commit}"
-                        checkout scm
+                        // 从 Job SCM 环境变量取 commit，显式用 HTTPS clone
+                        branch = env.BRANCH_NAME ?: env.GIT_BRANCH?.replace('origin/', '') ?: 'master'
+                        checkout([$class: 'GitSCM',
+                            branches: [[name: "refs/heads/${branch}"]],
+                            userRemoteConfigs: [[url: 'https://github.com/2023111998/agentproject.git']]
+                        ])
+                        commit = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+                        echo "Git SCM checkout: ${branch} @ ${commit}"
                     } else if (env.GIT_URL) {
                         branch = env.GIT_BRANCH ?: env.BRANCH_NAME ?: 'main'
                         sh """

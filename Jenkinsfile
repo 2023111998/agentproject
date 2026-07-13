@@ -152,7 +152,7 @@ pipeline {
 
         // ===== Stage 6: 本地 Docker 部署 =====
         // 注意: Jenkins DinD 环境下 nginx volume 挂载有已知问题
-        // 当前策略: 仅重建 Java 服务，nginx 由宿主机管理
+        // 当前策略: 仅重建 Java 服务，nginx/mysql/redis 由宿主机管理
         stage('Deploy to Local') {
             when {
                 allOf {
@@ -164,10 +164,11 @@ pipeline {
                 script {
                     timeout(time: 120, unit: 'SECONDS') {
                         sh '''
-                            echo "=== 停止旧容器 ==="
-                            docker compose down 2>/dev/null || true
+                            echo "=== 只停止 Java 微服务（保留 nginx/mysql/redis）==="
+                            docker compose stop campus-server-1 campus-server-2 order-service product-service logistics-service 2>/dev/null || true
+                            docker compose rm -f campus-server-1 campus-server-2 order-service product-service logistics-service 2>/dev/null || true
 
-                            echo "=== 修复 nginx volume 挂载 (确保 nginx.conf 是文件而不是目录) ==="
+                            echo "=== 确保 nginx.conf 文件存在（而非目录）==="
                             rm -rf nginx 2>/dev/null || true
                             mkdir -p nginx
                             if [ -f nginx/nginx.conf ]; then
@@ -183,8 +184,11 @@ pipeline {
                                 fi
                             fi
 
-                            echo "=== 构建并启动所有服务 ==="
-                            docker compose up -d --build
+                            echo "=== 仅构建并启动 Java 微服务（跳过 nginx/mysql/redis — 避免 DinD volume 冲突）==="
+                            docker compose up -d --build --no-deps campus-server-1 campus-server-2 order-service product-service logistics-service
+
+                            echo "=== 重新加载 nginx（宿主机管理，仅 restart）==="
+                            docker restart campus-nginx 2>/dev/null || echo "nginx 未运行（由宿主机管理，跳过）"
 
                             echo "=== 等待服务就绪 ==="
                             for i in $(seq 1 30); do
@@ -205,7 +209,7 @@ pipeline {
             }
             post {
                 failure {
-                    sh 'docker compose down 2>/dev/null || true'
+                    sh 'docker compose stop campus-server-1 campus-server-2 order-service product-service logistics-service 2>/dev/null || true'
                     error('本地部署失败，请检查 Jenkins 构建日志')
                 }
             }

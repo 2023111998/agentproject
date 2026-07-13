@@ -1,7 +1,8 @@
 // ============================================================================
 // 校园电商/外卖智能服务平台 — Java 重构版 CI/CD Pipeline
 // 阶段: Checkout → Build+Test → Static Analysis → Package
-//       → Docker Build → Docker Push → Deploy to K8s → Post
+//       → Deploy to Local → Smoke Test → Health Check → Post
+// 触发: 手动 Build Now (Jenkins UI)
 // ============================================================================
 
 pipeline {
@@ -26,7 +27,7 @@ pipeline {
         booleanParam(name: 'RUN_EVAL', defaultValue: true,
                      description: '运行离线评测')
         booleanParam(name: 'SKIP_DEPLOY', defaultValue: false,
-                     description: '跳过 K8s 部署')
+                     description: '勾选以跳过本地 Docker 部署（默认不勾选，即执行部署）')
         booleanParam(name: 'SKIP_TESTS', defaultValue: false,
                      description: '跳过单元测试')
         string(name: 'DOCKER_TAG_OVERRIDE', defaultValue: '',
@@ -140,7 +141,7 @@ pipeline {
             }
         }
 
-        // ===== Stage 5: 离线评测 (跳过—Docker-in-Docker nginx 挂载问题) =====
+        // ===== Stage 5: 离线评测 (跳过) =====
         stage('Evaluation') {
             when { expression { params.RUN_EVAL } }
             steps {
@@ -149,24 +150,238 @@ pipeline {
             }
         }
 
-        // ===== Stage 6: Docker 构建 =====
-        stage('Docker Build') {
+        // ===== Stage 6: 本地 Docker 部署 =====
+        // 注意: Jenkins DinD 环境下 nginx volume 挂载有已知问题
+        // 当前策略: 仅重建 Java 服务，nginx 由宿主机管理
+        stage('Deploy to Local') {
+            when {
+                allOf {
+                    expression { params.DEPLOY_ENV == 'dev' }
+                    expression { !params.SKIP_DEPLOY }
+                }
+            }
             steps {
-                echo 'Docker 构建跳过 (dev 模式)'
+                script {
+                    timeout(time: 120, unit: 'SECONDS') {
+                        sh '''
+                            echo "=== 停止旧容器 ==="
+                            docker compose down 2>/dev/null || true
+
+                            echo "=== 修复 nginx volume 挂载 (确保 nginx.conf 是文件而不是目录) ==="
+                            rm -rf nginx 2>/dev/null || true
+                            mkdir -p nginx
+                            if [ -f nginx/nginx.conf ]; then
+                                echo "nginx.conf 已存在，跳过复制"
+                            else
+                                if [ -f nginx.conf ]; then
+                                    cp nginx.conf nginx/nginx.conf
+                                elif [ -f /mnt/campus-assistant-java/nginx/nginx.conf ]; then
+                                    cp /mnt/campus-assistant-java/nginx/nginx.conf nginx/nginx.conf
+                                else
+                                    echo "ERROR: nginx.conf 未找到"
+                                    exit 1
+                                fi
+                            fi
+
+                            echo "=== 构建并启动所有服务 ==="
+                            docker compose up -d --build
+
+                            echo "=== 等待服务就绪 ==="
+                            for i in $(seq 1 30); do
+                                if curl -sf http://localhost/api/health > /dev/null 2>&1; then
+                                    echo "服务就绪 (${i}s)"
+                                    break
+                                fi
+                                [ $i -eq 30 ] && echo "ERROR: 服务启动超时" && exit 1
+                                sleep 2
+                            done
+
+                            echo ""
+                            echo "=== 容器运行状态 ==="
+                            docker compose ps
+                        '''
+                    }
+                }
+            }
+            post {
+                failure {
+                    sh 'docker compose down 2>/dev/null || true'
+                    error('本地部署失败，请检查 Jenkins 构建日志')
+                }
             }
         }
 
-        // ===== Stage 7: Docker 推送 =====
-        stage('Docker Push') {
+        // ===== Stage 7: 烟雾测试 =====
+        stage('Smoke Test') {
             steps {
-                echo 'Docker Push 跳过 (dev 模式)'
+                script {
+                    timeout(time: 60, unit: 'SECONDS') {
+                        def passed = 0
+                        def failed = 0
+
+                        echo "=== 烟雾测试：关键端点验证 ==="
+
+                        // 页面端点
+                        def endpoints = [
+                            [name: '用户端首页',       url: 'http://localhost/'],
+                            [name: '商家端',           url: 'http://localhost/merchant'],
+                            [name: '骑手端',           url: 'http://localhost/rider'],
+                            [name: '智能助理页面',     url: 'http://localhost/chat'],
+                            [name: '商品列表 API',     url: 'http://localhost/api/products'],
+                        ]
+
+                        endpoints.each { ep ->
+                            def status = sh(
+                                script: "curl -s -o /dev/null -w '%{http_code}' ${ep.url}",
+                                returnStdout: true
+                            ).trim()
+                            if (status == '200') {
+                                echo "  [PASS] ${ep.name}: ${ep.url} -> ${status}"
+                                passed++
+                            } else {
+                                echo "  [FAIL] ${ep.name}: ${ep.url} -> ${status}"
+                                failed++
+                            }
+                        }
+
+                        // Agent API (POST)
+                        echo "--- Agent API 测试 ---"
+                        def chatStatus = sh(
+                            script: """curl -s -o /dev/null -w '%{http_code}' \
+                                -X POST http://localhost/api/chat \
+                                -H 'Content-Type: application/json' \
+                                -d '{"message":"你好"}'""",
+                            returnStdout: true
+                        ).trim()
+                        if (chatStatus == '200') {
+                            echo "  [PASS] Agent API (POST /api/chat) -> ${chatStatus}"
+                            passed++
+                        } else {
+                            echo "  [FAIL] Agent API (POST /api/chat) -> ${chatStatus}"
+                            failed++
+                        }
+
+                        // 评测 API
+                        echo "--- 评测 API 测试 ---"
+                        def evalResult = sh(
+                            script: 'curl -s http://localhost/api/evaluate',
+                            returnStdout: true
+                        ).trim()
+                        def evalPassed = sh(
+                            script: "echo '${evalResult}' | python3 -c \"import sys,json; d=json.load(sys.stdin); print(d.get('passed',0))\"",
+                            returnStdout: true
+                        ).trim()
+                        def evalTotal = sh(
+                            script: "echo '${evalResult}' | python3 -c \"import sys,json; d=json.load(sys.stdin); print(d.get('total',0))\"",
+                            returnStdout: true
+                        ).trim()
+                        if (evalPassed == evalTotal && evalTotal != '0') {
+                            echo "  [PASS] 评测 API: ${evalPassed}/${evalTotal} (100%)"
+                            passed++
+                        } else {
+                            echo "  [FAIL] 评测 API: ${evalPassed}/${evalTotal}"
+                            failed++
+                        }
+
+                        echo ""
+                        echo "=== 烟雾测试结果: ${passed} PASS, ${failed} FAIL ==="
+
+                        if (failed > 0) {
+                            currentBuild.result = 'UNSTABLE'
+                            echo "WARNING: 烟雾测试有 ${failed} 项失败，标记为 UNSTABLE"
+                        }
+                    }
+                }
             }
         }
 
-        // ===== Stage 8: K8s 部署 =====
-        stage('Deploy to Kubernetes') {
+        // ===== Stage 8: 健康检查 =====
+        stage('Health Check') {
             steps {
-                echo 'K8s 部署跳过 (dev 模式)'
+                script {
+                    timeout(time: 30, unit: 'SECONDS') {
+                        def healthOk = true
+
+                        echo "=== 健康检查 ==="
+
+                        // 1. Actuator 聚合健康检查
+                        echo "--- Actuator 健康检查 ---"
+                        def actuatorResult = sh(
+                            script: 'curl -s http://localhost/actuator/health',
+                            returnStdout: true
+                        ).trim()
+                        echo "Actuator: ${actuatorResult}"
+                        def actuatorStatus = sh(
+                            script: "echo '${actuatorResult}' | python3 -c \"import sys,json; d=json.load(sys.stdin); print(d.get('status','DOWN'))\"",
+                            returnStdout: true
+                        ).trim()
+                        if (actuatorStatus == 'UP') {
+                            echo "  [PASS] Actuator 聚合状态: UP"
+                        } else {
+                            echo "  [FAIL] Actuator 聚合状态: ${actuatorStatus}"
+                            healthOk = false
+                        }
+
+                        // 列出子组件状态
+                        def components = sh(
+                            script: "echo '${actuatorResult}' | python3 -c \"
+import sys, json
+d = json.load(sys.stdin)
+components = d.get('components', {})
+for name, info in components.items():
+    status = info.get('status', 'UNKNOWN')
+    print(f'    {name}: {status}')
+\"",
+                            returnStdout: true
+                        ).trim()
+                        if (components) echo "${components}"
+
+                        // 2. Docker 容器状态
+                        echo "--- Docker 容器状态 ---"
+                        sh 'docker compose ps'
+
+                        // 3. 微服务直连健康检查 (容器网络)
+                        echo "--- 微服务直连健康检查 ---"
+                        def microservices = [
+                            'order-service:8001',
+                            'product-service:8002',
+                            'logistics-service:8003'
+                        ]
+                        microservices.each { svc ->
+                            def svcHealth = sh(
+                                script: "curl -s -o /dev/null -w '%{http_code}' http://${svc}/actuator/health 2>/dev/null || echo '000'",
+                                returnStdout: true
+                            ).trim()
+                            if (svcHealth == '200') {
+                                echo "  [PASS] ${svc} -> ${svcHealth}"
+                            } else {
+                                echo "  [FAIL] ${svc} -> ${svcHealth}"
+                                healthOk = false
+                            }
+                        }
+
+                        // 4. Prometheus 指标验证
+                        echo "--- Prometheus 指标验证 ---"
+                        def promMetrics = sh(
+                            script: "curl -s http://localhost/actuator/prometheus 2>/dev/null | head -5",
+                            returnStdout: true
+                        ).trim()
+                        if (promMetrics.contains('jvm_')) {
+                            echo "  [PASS] Prometheus 指标正常产出"
+                        } else {
+                            echo "  [FAIL] Prometheus 指标异常"
+                            healthOk = false
+                        }
+
+                        echo ""
+                        if (!healthOk) {
+                            currentBuild.result = 'UNSTABLE'
+                            echo "WARNING: 健康检查未通过，标记为 UNSTABLE"
+                        } else {
+                            echo "=== 健康检查: 全部通过 ==="
+                        }
+                    }
+                }
             }
         }
     }

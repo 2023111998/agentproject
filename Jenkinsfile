@@ -228,11 +228,11 @@ pipeline {
 
                         // 页面端点
                         def endpoints = [
-                            [name: '用户端首页',       url: 'http://localhost/'],
-                            [name: '商家端',           url: 'http://localhost/merchant'],
-                            [name: '骑手端',           url: 'http://localhost/rider'],
-                            [name: '智能助理页面',     url: 'http://localhost/chat'],
-                            [name: '商品列表 API',     url: 'http://localhost/api/products'],
+                            [name: '用户端首页',       url: 'http://host.docker.internal/'],
+                            [name: '商家端',           url: 'http://host.docker.internal/merchant'],
+                            [name: '骑手端',           url: 'http://host.docker.internal/rider'],
+                            [name: '智能助理页面',     url: 'http://host.docker.internal/chat'],
+                            [name: '商品列表 API',     url: 'http://host.docker.internal/api/products'],
                         ]
 
                         endpoints.each { ep ->
@@ -253,7 +253,7 @@ pipeline {
                         echo "--- Agent API 测试 ---"
                         def chatStatus = sh(
                             script: """curl -s -o /dev/null -w '%{http_code}' \
-                                -X POST http://localhost/api/chat \
+                                -X POST http://host.docker.internal/api/chat \
                                 -H 'Content-Type: application/json' \
                                 -d '{"message":"你好"}'""",
                             returnStdout: true
@@ -269,7 +269,7 @@ pipeline {
                         // 评测 API
                         echo "--- 评测 API 测试 ---"
                         def evalResult = sh(
-                            script: 'curl -s http://localhost/api/evaluate',
+                            script: 'curl -s http://host.docker.internal/api/evaluate',
                             returnStdout: true
                         ).trim()
                         def evalPassed = sh(
@@ -312,7 +312,7 @@ pipeline {
                         // 1. Actuator 聚合健康检查
                         echo "--- Actuator 健康检查 ---"
                         def actuatorResult = sh(
-                            script: 'curl -s http://localhost/actuator/health',
+                            script: 'curl -s http://host.docker.internal/actuator/health',
                             returnStdout: true
                         ).trim()
                         echo "Actuator: ${actuatorResult}"
@@ -361,7 +361,7 @@ pipeline {
                         // 4. Prometheus 指标验证
                         echo "--- Prometheus 指标验证 ---"
                         def promMetrics = sh(
-                            script: "curl -s http://localhost/actuator/prometheus 2>/dev/null | head -5",
+                            script: "curl -s http://host.docker.internal/actuator/prometheus 2>/dev/null | head -5",
                             returnStdout: true
                         ).trim()
                         if (promMetrics.contains('jvm_')) {

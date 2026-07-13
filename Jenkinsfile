@@ -328,14 +328,7 @@ pipeline {
 
                         // 列出子组件状态
                         def components = sh(
-                            script: "echo '${actuatorResult}' | python3 -c \"
-import sys, json
-d = json.load(sys.stdin)
-components = d.get('components', {})
-for name, info in components.items():
-    status = info.get('status', 'UNKNOWN')
-    print(f'    {name}: {status}')
-\"",
+                            script: "echo '${actuatorResult}' | python3 -c 'import sys, json; d=json.load(sys.stdin); components=d.get(\"components\",{}); [print(f\"    {k}: {v.get(\"status\",\"UNKNOWN\")}\") for k,v in components.items()]'",
                             returnStdout: true
                         ).trim()
                         if (components) echo "${components}"

@@ -273,11 +273,11 @@ pipeline {
                             returnStdout: true
                         ).trim()
                         def evalPassed = sh(
-                            script: "echo '${evalResult}' | python3 -c \"import sys,json; d=json.load(sys.stdin); print(d.get('passed',0))\"",
+                            script: "echo '${evalResult}' | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get(\"passed\",0))'",
                             returnStdout: true
                         ).trim()
                         def evalTotal = sh(
-                            script: "echo '${evalResult}' | python3 -c \"import sys,json; d=json.load(sys.stdin); print(d.get('total',0))\"",
+                            script: "echo '${evalResult}' | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get(\"total\",0))'",
                             returnStdout: true
                         ).trim()
                         if (evalPassed == evalTotal && evalTotal != '0') {

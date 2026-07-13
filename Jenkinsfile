@@ -191,6 +191,7 @@ pipeline {
                             docker restart campus-nginx 2>/dev/null || echo "nginx 未运行（由宿主机管理，跳过）"
 
                             echo "=== 等待服务就绪 ==="
+                            sleep 3
                             for i in $(seq 1 30); do
                                 if curl -sf http://localhost/api/health > /dev/null 2>&1; then
                                     echo "服务就绪 (${i}s)"

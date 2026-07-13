@@ -17,7 +17,6 @@ pipeline {
         MAVEN_HOME      = tool name: 'maven-3', type: 'maven'
         JENKINS_LOCAL_TEST = 'false'
         GIT_REPO_URL      = 'https://github.com/2023111998/agentproject.git'
-        GIT_REPO_URL      = 'https://github.com/2023111998/agentproject.git'
         GIT_BRANCH        = 'master'
     }
 

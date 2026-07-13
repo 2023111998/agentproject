@@ -13,7 +13,7 @@
 - **Java 重构版**: `D:\lab\Agent服务工程\campus-assistant-java\`
 - **Python 原版** (已归档): `D:\lab\Agent服务工程\campus-assistant\` — Docker 容器已关闭，仅保留代码
 
-## 当前运行状态（2026-07-09 验证）
+## 当前运行状态（2026-07-14 验证）
 
 ### 服务地址
 
@@ -48,9 +48,9 @@ jenkins              :9090   Jenkins CI/CD
 
 ### Jenkins 状态
 
-| Job | 最近构建 | 结果 |
-|-----|---------|------|
-| campus-assistant-java (Java) | #20 | 🔵 SUCCESS |
+| Job | 最新构建 | 结果 | 说明 |
+|-----|---------|------|------|
+| campus-assistant-java (Java) | #27 (2026-07-13) | 🔵 SUCCESS (145s) | 18 tests 通过, 2897行/43文件 |
 
 ### 评测状态
 
@@ -60,9 +60,28 @@ jenkins              :9090   Jenkins CI/CD
 
 ### Git 状态
 
-- Java 项目: `master` 分支，已提交最新状态（29 commits, 远程: https://github.com/2023111998/agentproject）
-- 开发周期: 2026-07-06 至 2026-07-10 (5 天)
+- 本地 HEAD: `9d37ef6`，领先 GitHub 远程 `d8ea321` **8 个 commits**
+- 远程: https://github.com/2023111998/agentproject（公开仓库）
+- ⚠️ **无法 push** — SSH (port 22) 被代理 `198.18.0.10` 阻断，本机 git 缺少 HTTPS helper
 - 工作区: 干净
+
+### Jenkins CI/CD 配置
+
+| 配置项 | 值 |
+|--------|-----|
+| Job SCM URL | `https://github.com/2023111998/agentproject.git` |
+| Jenkinsfile | Pipeline script from SCM |
+| SCM Poll 触发器 | `H/2 * * * *`（每 2 分钟检查 GitHub） |
+| Git SSH→HTTPS 重定向 | `url.https://github.com/.insteadOf = git@github.com:` (容器全局配置) |
+| Checkout 方式 | `git clone --depth 1 --branch master https://github.com/...` (Jenkinsfile 内显式 HTTPS) |
+| 可访问 Docker | ✅ docker.sock 挂载 + docker compose v2.27.0 |
+
+### 已知问题 (共 4 项)
+
+1. **无法 push 到 GitHub**: SSH/HTTPS 均失败。本地 8 个 commits 未推送
+2. **Jenkins 流水线缺少"本地部署"阶段**: Docker Build / Push / Deploy 三阶段目前均 `echo '跳过'`。Jenkins 容器已有 docker.sock 和 docker compose，可直接部署
+3. **Jenkins CSRF 保护**: 无法通过 API 远程触发构建，只能手动 Build Now（CRSF crumb 机制阻挡）
+4. **Docker-in-Docker nginx volume 挂载**: `docker compose up` 在 Jenkins 容器内执行时，nginx volume mount 对 `nginx.conf` 的单文件要求与 `cp -r` 产生目录冲突
 
 ### 代码规模
 
@@ -199,20 +218,22 @@ docker compose down -v
 
 ### Pipeline Job
 
-| Job | 路径 | 状态 | 参数 |
-|-----|------|------|------|
-| campus-assistant-java (Java) | `file:///mnt/campus-assistant` | 🔵 blue | DEPLOY_ENV, RUN_EVAL, SKIP_DEPLOY, SKIP_TESTS |
+| Job | SCM URL | 状态 |
+|-----|---------|------|
+| campus-assistant-java (Java) | `https://github.com/2023111998/agentproject.git` | 🔵 blue |
 
-### Jenkins 阶段（构建 #20 SUCCESS）
+### 流水线阶段
 
 | 阶段 | 状态 |
 |------|------|
-| Checkout | ✅ |
-| Build & Unit Test (18 tests, 0 failures) | ✅ |
-| Static Analysis (2,882 行/43 文件) | ✅ |
-| Package (5 JAR, 119MB) | ✅ |
-| Evaluation | ⚠️ 跳过（Docker-in-Docker nginx volume 兼容问题） |
-| Docker Build/Push/Deploy | ⚠️ 跳过（dev 模式） |
+| Checkout | ✅ `git clone --depth 1 https://github.com/...` |
+| Build & Unit Test | ✅ 18 tests, 0 failures |
+| Static Analysis | ✅ 2,897 行 / 43 文件 |
+| Package (6 modules) | ✅ BUILD SUCCESS |
+| Evaluation | ⚠️ 跳过（Docker-in-Docker nginx volume 冲突） |
+| Docker Build | ⚠️ **跳过 — 未实现**（需新增本地部署） |
+| Docker Push | ⚠️ 跳过 |
+| Deploy to K8s | ⚠️ 跳过 |
 
 ### Jenkins 登录信息
 
@@ -223,17 +244,31 @@ docker compose down -v
 
 ## 已知问题与解决方案
 
-### 1. Jenkins Docker-in-Docker nginx volume 挂载问题
+### 1. 无法 push 到 GitHub
+
+- **现象**: `git push` 到 `https://github.com/2023111998/agentproject` 失败
+- **SSH**: `Connection closed by 198.18.0.10 port 22`（网络代理阻断）
+- **HTTPS**: 本机 git 缺少 `remote-https` helper
+- **影响**: 本地 8 个 commits 无法推送，Jenkins SCM Poll 始终看到 `d8ea321` 无变化
+- **缓解**: Jenkins 容器内设置了 `url.https://github.com/.insteadOf = git@github.com:` 全局 git 重定向，`git clone` / `git ls-remote` 从容器内可正常走 HTTPS
+
+### 2. Jenkins Pipeline 缺少本地 Docker 部署
+
+- **现象**: Stage 6-8 (Docker Build / Push / Deploy) 均为 `echo '跳过'`
+- **现状**: Jenkins 容器已挂载 docker.sock，具备 docker compose v2.27.0，可直接 `docker compose up -d --build`
+- **待做**: 在 Jenkinsfile 中添加 dev 模式下 `docker compose up -d --build` 的部署 Stage
+
+### 3. Jenkins Docker-in-Docker nginx volume 挂载
 
 - **现象**: `docker compose up` 在 Jenkins 容器内启动时，nginx 挂载 `./nginx/nginx.conf` 失败
-- **原因**: Jenkins 的 Checkout 阶段执行 `cp -r`，将宿主机 `/mnt/.../nginx/` 目录完整复制到 Jenkins 工作区。Docker Compose 的 volume mount 期望 `nginx.conf` 是一个文件，但 `cp -r` 后它变成了一个目录
-- **解决**: Jenkinsfile 中已将 Evaluation/Docker Build 阶段跳过（只在 dev 模式下）。如需修复，可在 checkout 后执行 `rm -rf nginx mysql && mkdir -p nginx mysql && cp .../nginx.conf nginx/nginx.conf`
+- **原因**: Jenkins Checkout 阶段执行 `cp -r`，导致 nginx.conf 从文件变成目录
+- **解决**: 在 checkout 后执行 `rm -rf nginx mysql && mkdir -p nginx mysql && cp .../nginx.conf nginx/nginx.conf`
 
-### 2. Docker Hub 拉取超时
+### 4. Docker Hub 拉取超时
 
 - **解决**: 所有 Dockerfile 已改用 `docker.m.daocloud.io` 国内镜像源
 
-### 3. ELK / Zipkin 已全部移除
+### 5. ELK / Zipkin 已全部移除
 
 - 项目中不再包含任何 Elasticsearch、Logstash、Kibana、Zipkin 相关代码或配置
 - 监控栈仅保留 Prometheus + Grafana
@@ -251,6 +286,22 @@ docker compose down -v
 | 查看截图清单 | campus-assistant-java | `screenshots/README.md` |
 | 访问 Jenkins | http://localhost:9090 | admin / `79d56eff6c364df6a9b45034bce73153` |
 | 访问 Grafana | http://localhost:3000 | admin / campus123 |
+
+## 近期更新 (2026-07-14)
+
+### Jenkins CI/CD 完善
+- Job SCM 切换为 HTTPS (原为 SSH `git@github.com:`)
+- Jenkins 容器配置全局 git SSH→HTTPS 重定向
+- SCM Poll 触发器 `H/2 * * * *` 已配置
+- Pipeline 从 GitHub 拉取 + 编译/测试/打包 全流程已验证通过 (#26, #27)
+- Jenkinsfile Checkout 阶段修复为显式 `git clone --depth 1 https://...`
+
+### Bug 修复
+- `OrderService.createOrder`: `items` 字段序列化改用 Jackson ObjectMapper (修复 MySQL JSON 列写入失败)
+- `customer.html`: 下单失败时错误提示改进
+
+### 未推送的本地 commits
+8 个 commits (从 `6a8cf48` 到 `9d37ef6`) 因网络问题无法 push 到 GitHub
 
 ## 近期更新 (2026-07-10)
 

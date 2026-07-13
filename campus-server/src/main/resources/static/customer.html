@@ -182,7 +182,8 @@ createApp({
       if (!cart.length) return toast('购物车为空', false);
       const items = cart.flatMap(c=>Array(c.qty).fill(c.name));
       const r = await api.createOrder({ order_id:'ORD'+Date.now(), user_id:user.id, store_id:cart[0].store_id, items, amount:cartTotal.value, type:'外卖', address:user.address });
-      if (r.id) { toast('下单成功！'); cart.length = 0; loadData(); } else toast(r.error||'失败', false);
+      if (r.error) { toast(r.error, false); return; }
+      if (r.id) { toast('下单成功！'); cart.length = 0; loadData(); } else toast('下单失败', false);
     }
 
     function addChat(t, w) { chatMsgs.push({text:t,who:w}); nextTick(()=>{const el=chatBody.value;if(el)el.scrollTop=el.scrollHeight;}); }

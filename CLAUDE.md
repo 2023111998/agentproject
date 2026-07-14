@@ -50,7 +50,7 @@ jenkins              :9090   Jenkins CI/CD
 
 | Job | 最新构建 | 结果 | 说明 |
 |-----|---------|------|------|
-| campus-assistant-java (Java) | #27 (2026-07-13) | 🔵 SUCCESS (145s) | 18 tests 通过, 2897行/43文件 |
+| campus-assistant-java (Java) | #104 (2026-07-14) | 🔴 FAILURE | SSH 混合部署架构，Jenkins 容器 DNS 解析问题待修复 |
 
 ### 评测状态
 
@@ -60,41 +60,54 @@ jenkins              :9090   Jenkins CI/CD
 
 ### Git 状态
 
-- 本地 HEAD: `9d37ef6`，领先 GitHub 远程 `d8ea321` **8 个 commits**
+- 本地 HEAD: `e6b809f`，领先 GitHub 远程 `308515f` **8 个 commits**
 - 远程: https://github.com/2023111998/agentproject（公开仓库）
-- ⚠️ **无法 push** — SSH (port 22) 被代理 `198.18.0.10` 阻断，本机 git 缺少 HTTPS helper
-- 工作区: 干净
+- ⚠️ **无法 push** — Token `ghp_ugWCzuenOooAZe0Db4VP9JpWl4k8vh2dKrgF` 已失效，需重新生成
 
-### Jenkins CI/CD 配置
+### Jenkins CI/CD 配置 — SSH 混合部署架构
+
+```
+Jenkins 容器 (Debian 13)                    Windows 宿主机
+┌─────────────────────────┐                ┌──────────────────────────┐
+│  Checkout (git clone)   │                │  OpenSSH Server (Port 22)│
+│  Maven Build + Test     │                │                          │
+│  Maven Package          │                │  docker compose stop/rm  │
+│  Docker Build (DinD)    │─── SSH ──────▶ │  docker compose up -d    │
+│  curl Smoke Test        │                │  docker restart nginx    │
+│  curl Health Check      │                │  docker compose ps       │
+└─────────────────────────┘                └──────────────────────────┘
+```
 
 | 配置项 | 值 |
 |--------|-----|
-| Job SCM URL | `https://github.com/2023111998/agentproject.git` |
-| Jenkinsfile | ~~Pipeline script from SCM~~ → **已改为本地 inline pipeline** (via Script Console) |
-| SCM Poll 触发器 | `H/2 * * * *`（每 2 分钟检查 GitHub） |
-| Git SSH→HTTPS 重定向 | `url.https://github.com/.insteadOf = git@github.com:` (容器全局配置) |
-| Checkout 方式 | `git clone --depth 1 --branch master https://github.com/...` (Jenkinsfile 内显式 HTTPS) |
-| 可访问 Docker | ✅ docker.sock 挂载 + docker compose v2.27.0 |
+| Job 定义方式 | `CpsFlowDefinition` (inline pipeline)，从 `/mnt/campus-assistant-java/Jenkinsfile` 注入 |
+| Checkout | GitHub HTTPS clone，retry(3)，`/mnt` fallback |
+| Maven 镜像 | 阿里云 `maven.aliyun.com/repository/public` |
+| Docker 构建 | Jenkins DinD (`docker compose build`) |
+| 容器管理 | SSH → `docker compose --project-name campus-assistant-java` |
+| 健康检查 | `host.docker.internal:8000`（绕过 Docker DNS 问题） |
+| Windows SSH | `18489@host.docker.internal`，ED25519 密钥 |
 
-### Jenkins Pipeline 8 阶段（最新）
+### Pipeline 8 阶段（当前状态）
 
-| 阶段 | 名称 | 状态 |
+| 阶段 | 状态 | 备注 |
 |------|------|------|
-| Stage 1 | Checkout | ✅ HTTPS clone from GitHub |
-| Stage 2 | Build & Unit Test | ✅ 18 tests, 0 failures |
-| Stage 3 | Static Analysis | ✅ 代码统计 |
-| Stage 4 | Package | ✅ 5 模块 JAR |
-| Stage 5 | Evaluation | ⚠️ 跳过 (DinD 限制) |
-| Stage 6 | Deploy to Local | ⚠️ 新增 — 构建通过但部署有 nginx DinD 问题 |
-| Stage 7 | Smoke Test | ⚠️ 新增 — 7 端点冒烟 |
-| Stage 8 | Health Check | ⚠️ 新增 — Actuator + Docker + 微服务 + Prometheus |
+| Stage 1: Checkout | ✅ | GitHub clone + retry(3) + /mnt fallback |
+| Stage 2: Build & Test | ✅ | Maven + aliyun 镜像 + retry(3)，18 tests |
+| Stage 3: Static Analysis | ✅ | |
+| Stage 4: Package | ✅ | retry(3) |
+| Stage 5: Evaluation | ✅ | curl 管道直传，8/8 100% |
+| Stage 6: Deploy to Local | ⚠️ | Java 启动等待 DNS 解析问题 |
+| Stage 7: Smoke Test | ✅ | 7/7 PASS（当 Deploy 成功时） |
+| Stage 8: Health Check | ✅ | 全部通过（当 Deploy 成功时） |
 
-### 已知问题 (共 4 项)
+### 当前问题 (2026-07-14 最新)
 
-1. **无法 push 到 GitHub**: SSH/HTTPS 均失败。本地 8 个 commits 未推送。**这是 Jenkins 无法自动获取新版 Jenkinsfile 的根因**
-2. **Jenkins Pipeline 8 阶段集成进行中**: Stage 6-8 已设计并注入，但 DinD nginx volume 挂载导致部署阶段失败。详见 [[jenkins-pipeline-deploy-smoke-health-status]]
-3. **Jenkins CSRF 保护**: 无法通过 API 远程触发构建，只能手动 Build Now（CRSF crumb 机制阻挡）。Script Console 可绕过
-4. **Docker-in-Docker nginx volume 挂载**: `docker compose up` 在 Jenkins 容器内执行时，nginx volume mount 失败 — 路径在宿主机不可访问。**绕过方案**: `docker compose up --no-deps` 仅重建 Java 服务，nginx 由宿主机管理
+1. **⏳ Jenkins 容器 DNS 不可解析 campus-server-1** — 容器重启后 Docker DNS 不更新。**已改为 `host.docker.internal:8000` 绕过**（commit `e6b809f`），待验证
+2. **⏳ Spring Boot 冷启动慢** — 启动等待已扩展到 20×5s=100s（`dc1a95e`）
+3. **⏳ Docker Compose 项目名冲突** — 已统一 `--project-name campus-assistant-java`（`d5795ae`）
+4. **⏳ GitHub Push 不通** — Token 失效，8 个 commits 未推送
+5. **⚠️ GnuTLS 间歇性 TLS 失败** — git clone + Maven Central，已 retry(3) + aliyun 镜像缓解
 
 ### 代码规模
 
@@ -118,17 +131,16 @@ jenkins              :9090   Jenkins CI/CD
   运维图 10 张: evaluate / sla / docker / git / maven / static / health / prometheus / chat / jenkins
 - 项目大小: 3.5 MB (排除 .git 和 target/)
 
-### 运行状态 (验证时间: 2026-07-10)
+### 运行状态 (验证时间: 2026-07-14)
 
 - Docker 容器: 11 个全部 UP
   MySQL: healthy (healthcheck 每 10s)
-  系统连续运行: 8,848 秒 (~2.5 小时)
 - 评测通过率: 8/8 = 100% (累计请求 9 次, 0 失败)
 - SLA 评级: 优秀 (A+ 4个9)
 - Prometheus: 3/3 targets UP
 - 平均延迟: 18ms (P95: 51ms)
 
-所有提交已推送到远程仓库: https://github.com/2023111998/agentproject
+⚠️ **GitHub Push 不通**: Token 已失效，8 个 commits 未推送至远程仓库
 
 ## 项目结构
 

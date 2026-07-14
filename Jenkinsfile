@@ -95,10 +95,13 @@ pipeline {
                     if (params.SKIP_TESTS) {
                         mvnCmd = "${MAVEN_HOME}/bin/mvn clean compile -DskipTests"
                     }
-                    sh """
-                        echo "=== Maven 编译 + 单元测试 ==="
-                        ${mvnCmd}
-                    """
+                    // retry 容错 Maven Central SSL 间歇断开
+                    retry(3) {
+                        sh """
+                            echo "=== Maven 编译 + 单元测试 ==="
+                            ${mvnCmd}
+                        """
+                    }
                 }
             }
             post {
@@ -122,11 +125,13 @@ pipeline {
         // ===== Stage 4: Maven 打包 =====
         stage('Package') {
             steps {
-                sh """
-                    echo "=== Maven 打包 ==="
-                    ${MAVEN_HOME}/bin/mvn clean package -DskipTests
-                    find . -name "*.jar" -path "*/target/*" | grep -v original | sort
-                """
+                retry(3) {
+                    sh """
+                        echo "=== Maven 打包 ==="
+                        ${MAVEN_HOME}/bin/mvn clean package -DskipTests
+                        find . -name "*.jar" -path "*/target/*" | grep -v original | sort
+                    """
+                }
             }
         }
 

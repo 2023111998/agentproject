@@ -199,24 +199,38 @@ pipeline {
                             echo "Java 微服务启动完成"
                         """
 
-                        // Step 4: 重新加载 nginx
+                        // Step 4: 等待 Java 微服务就绪（通过容器网络直连检查）
+                        sh '''
+                            echo "=== 等待 Java 微服务就绪 ==="
+                            sleep 5
+                            for i in $(seq 1 15); do
+                                if curl -sf http://campus-server-1:8000/actuator/health > /dev/null 2>&1; then
+                                    echo "Java 服务就绪 (${i}s)"
+                                    break
+                                fi
+                                [ $i -eq 15 ] && echo "ERROR: Java 服务启动超时" && exit 1
+                                sleep 3
+                            done
+                        '''
+
+                        // Step 5: 重新加载 nginx（Java 服务就绪后）
                         sh """
                             echo "=== [SSH] 重新加载 nginx ==="
                             ${sshCmd} docker restart campus-nginx
                             echo "nginx 已重启"
                         """
 
-                        // Step 5: 等待服务就绪
+                        // Step 6: 最终健康确认（通过 nginx 入口）
                         sh '''
-                            echo "=== 等待服务就绪 ==="
-                            sleep 5
-                            for i in $(seq 1 15); do
+                            echo "=== 最终健康确认 ==="
+                            sleep 3
+                            for i in $(seq 1 10); do
                                 if curl -sf http://host.docker.internal/api/health > /dev/null 2>&1; then
-                                    echo "服务就绪 (${i}s)"
+                                    echo "服务完全就绪 (${i}s)"
                                     break
                                 fi
-                                [ $i -eq 15 ] && echo "ERROR: 服务启动超时" && exit 1
-                                sleep 3
+                                [ $i -eq 10 ] && echo "ERROR: 总服务启动超时" && exit 1
+                                sleep 2
                             done
                         '''
 

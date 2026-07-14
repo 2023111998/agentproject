@@ -176,12 +176,15 @@ pipeline {
                 script {
                     timeout(time: 300, unit: 'SECONDS') {
                         def sshCmd = "ssh ${SSH_OPTS} ${WINDOWS_HOST}"
+                        // ⚠️ 必须统一 project name，否则 Jenkins workspace 目录名差异
+                        // 会导致 Compose 项目名不一致，产生容器名冲突
+                        def composeCmd = "docker compose --project-name campus-assistant-java"
 
                         // Step 1: 停止并清理旧的 Java 微服务容器 (SSH)
                         // 注意: stop/rm 可能因容器已不存在而返回非零，加 || true 容错
                         sh """
                             echo "=== [SSH] 停止旧的 Java 微服务 ==="
-                            ${sshCmd} "cd /d D:\\\\lab\\\\Agent服务工程\\\\campus-assistant-java && docker compose stop campus-server-1 campus-server-2 order-service product-service logistics-service 2>nul || true && docker compose rm -f campus-server-1 campus-server-2 order-service product-service logistics-service 2>nul || true"
+                            ${sshCmd} "cd /d D:\\\\lab\\\\Agent服务工程\\\\campus-assistant-java && ${composeCmd} stop campus-server-1 campus-server-2 order-service product-service logistics-service 2>nul || true && ${composeCmd} rm -f campus-server-1 campus-server-2 order-service product-service logistics-service 2>nul || true"
                             echo "旧容器已清理"
                         """
 
@@ -195,7 +198,7 @@ pipeline {
                         // Step 3: 在宿主机启动容器 (SSH，不 build)
                         sh """
                             echo "=== [SSH] 启动 Java 微服务 ==="
-                            ${sshCmd} "cd /d D:\\\\lab\\\\Agent服务工程\\\\campus-assistant-java && docker compose up -d --no-deps campus-server-1 campus-server-2 order-service product-service logistics-service"
+                            ${sshCmd} "cd /d D:\\\\lab\\\\Agent服务工程\\\\campus-assistant-java && ${composeCmd} up -d --no-deps campus-server-1 campus-server-2 order-service product-service logistics-service"
                             echo "Java 微服务启动完成"
                         """
 
@@ -234,11 +237,11 @@ pipeline {
                             done
                         '''
 
-                        // Step 6: 显示容器状态
+                        // Step 7: 显示容器状态
                         sh """
                             echo ""
                             echo "=== [SSH] 容器运行状态 ==="
-                            ${sshCmd} "cd /d D:\\\\lab\\\\Agent服务工程\\\\campus-assistant-java && docker compose ps"
+                            ${sshCmd} "cd /d D:\\\\lab\\\\Agent服务工程\\\\campus-assistant-java && ${composeCmd} ps"
                         """
                     }
                 }
@@ -246,7 +249,7 @@ pipeline {
             post {
                 failure {
                     echo 'WARNING: 本地部署失败，请检查构建日志。nginx/mysql/redis 由宿主机管理，不受影响。'
-                    sh "ssh ${SSH_OPTS} ${WINDOWS_HOST} \"cd /d D:\\\\lab\\\\Agent服务工程\\\\campus-assistant-java && docker compose stop campus-server-1 campus-server-2 order-service product-service logistics-service 2>nul\" || true"
+                    sh "ssh ${SSH_OPTS} ${WINDOWS_HOST} \"cd /d D:\\\\lab\\\\Agent服务工程\\\\campus-assistant-java && docker compose --project-name campus-assistant-java stop campus-server-1 campus-server-2 order-service product-service logistics-service 2>nul\" || true"
                     error('本地部署失败，请检查 Jenkins 构建日志')
                 }
             }
@@ -373,7 +376,7 @@ pipeline {
 
                         // 2. Docker 容器状态 (SSH 远程获取)
                         echo "--- Docker 容器状态 ---"
-                        sh "ssh ${SSH_OPTS} ${WINDOWS_HOST} \"cd /d D:\\\\lab\\\\Agent服务工程\\\\campus-assistant-java && docker compose ps\""
+                        sh "ssh ${SSH_OPTS} ${WINDOWS_HOST} \"cd /d D:\\\\lab\\\\Agent服务工程\\\\campus-assistant-java && docker compose --project-name campus-assistant-java ps\""
 
                         // 3. 微服务直连健康检查 (容器网络)
                         echo "--- 微服务直连健康检查 ---"

@@ -1,8 +1,11 @@
 // ============================================================================
-// 校园电商/外卖智能服务平台 — Java 重构版 CI/CD Pipeline
+// 校园电商/外卖智能服务平台 — Java 重构版 CI/CD Pipeline (SSH 远程部署版)
 // 阶段: Checkout → Build+Test → Static Analysis → Package
 //       → Deploy to Local → Smoke Test → Health Check → Post
 // 触发: 手动 Build Now (Jenkins UI)
+//
+// 部署策略: Jenkins 通过 SSH 远程在 Windows 宿主机执行 docker compose
+//           彻底绕过 Docker-in-Docker 限制 + GnuTLS GitHub 连接问题
 // ============================================================================
 
 pipeline {
@@ -16,9 +19,11 @@ pipeline {
         K8S_NAMESPACE   = 'campus-prod'
         MAVEN_OPTS      = '-Dmaven.repo.local=.m2/repository'
         MAVEN_HOME      = tool name: 'maven-3', type: 'maven'
-        JENKINS_LOCAL_TEST = 'false'
-        GIT_REPO_URL      = 'https://github.com/2023111998/agentproject.git'
-        GIT_BRANCH        = 'master'
+
+        // SSH 远程执行 — 所有 docker compose 命令通过 SSH 在宿主机原生执行
+        WINDOWS_HOST    = '18489@host.docker.internal'
+        PROJECT_DIR_WIN = 'D:\\lab\\Agent服务工程\\campus-assistant-java'
+        SSH_OPTS        = '-o StrictHostKeyChecking=no -o ConnectTimeout=10'
     }
 
     parameters {
@@ -37,60 +42,39 @@ pipeline {
     stages {
 
         // ===== Stage 1: 代码检出 =====
+        // 策略: 优先从 /mnt 本地目录复制（绕过 GnuTLS GitHub 连接问题）
+        //       GitHub clone 仅作 fallback
         stage('Checkout') {
             steps {
                 script {
                     def commit = 'unknown'
-                    def branch = 'unknown'
+                    def branch = 'master'
 
-                    if (env.GIT_COMMIT && env.GIT_COMMIT != 'null') {
-                        // Job 从 SCM 获取 Jenkinsfile 后，这里直接用 HTTPS 从 GitHub clone
-                        branch = env.BRANCH_NAME ?: env.GIT_BRANCH?.replace('origin/', '') ?: 'master'
-                        sh """
-                            rm -rf ./* ./.[!.]* 2>/dev/null || true
-                            git clone --depth 1 --branch ${branch} https://github.com/2023111998/agentproject.git .
-                            git rev-parse --short HEAD > .git_commit
-                        """
-                        commit = sh(script: 'cat .git_commit', returnStdout: true).trim()
-                        echo "Git HTTPS clone: ${branch} @ ${commit}"
-                    } else if (env.GIT_URL) {
-                        branch = env.GIT_BRANCH ?: env.BRANCH_NAME ?: 'main'
-                        sh """
-                            git clone --depth 1 --branch ${branch} ${env.GIT_URL} .
-                            commit=\$(git rev-parse --short HEAD)
-                        """
-                        commit = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
-                        echo "Git clone: ${branch} @ ${commit}"
-                    } else if (env.JENKINS_LOCAL_TEST == 'true') {
+                    // 优先从宿主机挂载目录复制源码（100% 可靠，无 TLS 依赖）
+                    if (fileExists('/mnt/campus-assistant-java/pom.xml')) {
                         sh '''
-                            set +e
+                            echo "=== 从本地 /mnt 目录复制源码（绕过 GitHub TLS）==="
+                            rm -rf ./* ./.[!.]* 2>/dev/null || true
                             cp -r /mnt/campus-assistant-java/* . 2>/dev/null
-                            cp -r /mnt/campus-assistant-java/.[!.]* . 2>/dev/null
-                            rm -rf .git 2>/dev/null
-                            rm -rf nginx mysql 2>/dev/null
-                            mkdir -p nginx mysql
-                            cp /mnt/campus-assistant-java/nginx/nginx.conf nginx/nginx.conf
-                            cp /mnt/campus-assistant-java/mysql/init.sql mysql/init.sql
-                            echo "Local test mode"
+                            cp -r /mnt/campus-assistant-java/.[!.]* . 2>/dev/null || true
+                            rm -rf .git 2>/dev/null || true
+                            echo "本地复制完成"
                         '''
-                        commit = 'local'
-                        branch = 'local-test'
-                        echo "Local test mode"
-                    } else if (env.GIT_REPO_URL) {
-                        // TLS 连接有时不稳定(GnuTLS), 加 3 次重试
-                        retry(3) {
-                            checkout([$class: 'GitSCM',
-                                branches: [[name: env.GIT_BRANCH ?: '*/main']],
-                                userRemoteConfigs: [[url: env.GIT_REPO_URL]]
-                            ])
-                        }
-                        commit = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
-                        echo "Standard SCM checkout: ${commit}"
+                        commit = sh(script: 'cd /mnt/campus-assistant-java && git rev-parse --short HEAD 2>/dev/null || echo "local"', returnStdout: true).trim()
+                        branch = 'master'
+                        echo "本地 /mnt 复制: ${branch} @ ${commit}"
                     } else {
-                        echo "Fallback: copy from /mnt"
-                        sh 'cp -r /mnt/campus-assistant-java/* . 2>/dev/null || echo "OK"; cp -r /mnt/campus-assistant-java/.[!.]* . 2>/dev/null || true'
-                        commit = 'local'
-                        branch = 'local'
+                        // Fallback: GitHub HTTPS clone (含 TLS 重试)
+                        echo '/mnt 目录不可用，fallback 到 GitHub HTTPS clone'
+                        retry(3) {
+                            sh '''
+                                rm -rf ./* ./.[!.]* 2>/dev/null || true
+                                git clone --depth 1 --branch master https://github.com/2023111998/agentproject.git .
+                                git rev-parse --short HEAD > .git_commit
+                            '''
+                        }
+                        commit = sh(script: 'cat .git_commit', returnStdout: true).trim()
+                        echo "GitHub HTTPS clone: ${branch} @ ${commit}"
                     }
 
                     env.GIT_COMMIT = commit
@@ -144,18 +128,41 @@ pipeline {
             }
         }
 
-        // ===== Stage 5: 离线评测 (跳过) =====
+        // ===== Stage 5: 离线评测 =====
         stage('Evaluation') {
             when { expression { params.RUN_EVAL } }
             steps {
-                echo '离线评测跳过 (Jenkins Docker 环境中 nginx volume 挂载冲突)'
-                echo '宿主机执行: curl http://localhost/api/evaluate'
+                script {
+                    echo '=== 离线评测 (通过宿主机 API) ==='
+                    def evalResult = sh(
+                        script: "curl -s http://host.docker.internal/api/evaluate",
+                        returnStdout: true
+                    ).trim()
+                    echo "评测结果: ${evalResult}"
+                    try {
+                        def passed = sh(
+                            script: "echo '${evalResult}' | python3 -c \"import sys,json; d=json.load(sys.stdin); print(d.get('passed',0))\"",
+                            returnStdout: true
+                        ).trim()
+                        def total = sh(
+                            script: "echo '${evalResult}' | python3 -c \"import sys,json; d=json.load(sys.stdin); print(d.get('total',0))\"",
+                            returnStdout: true
+                        ).trim()
+                        if (passed == total && total != '0') {
+                            echo "评测通过: ${passed}/${total} (100%)"
+                        } else {
+                            echo "WARNING: 评测未全部通过: ${passed}/${total}"
+                        }
+                    } catch (Exception e) {
+                        echo "WARNING: 无法解析评测结果（服务可能未运行）: ${e.message}"
+                    }
+                }
             }
         }
 
-        // ===== Stage 6: 本地 Docker 部署 =====
-        // 注意: Jenkins DinD 环境下 nginx volume 挂载有已知问题
-        // 当前策略: 仅重建 Java 服务，nginx/mysql/redis 由宿主机管理
+        // ===== Stage 6: 本地 Docker 部署 (SSH 远程执行) =====
+        // 策略: 所有 docker compose 命令通过 SSH 在 Windows 宿主机原生执行
+        //       彻底消除 DinD 容器名冲突、volume 路径不可达、project 作用域问题
         stage('Deploy to Local') {
             when {
                 allOf {
@@ -165,55 +172,55 @@ pipeline {
             }
             steps {
                 script {
-                    timeout(time: 120, unit: 'SECONDS') {
+                    timeout(time: 300, unit: 'SECONDS') {
+                        // Step 1: 停止并清理旧的 Java 微服务容器
+                        sh """
+                            echo "=== [SSH] 停止旧的 Java 微服务 ==="
+                            ssh ${SSH_OPTS} ${WINDOWS_HOST} "cmd /c \"cd /d ${PROJECT_DIR_WIN} && docker compose stop campus-server-1 campus-server-2 order-service product-service logistics-service 2>nul & docker compose rm -f campus-server-1 campus-server-2 order-service product-service logistics-service 2>nul\""
+                            echo "旧容器已清理"
+                        """
+
+                        // Step 2: 构建并启动 Java 微服务（跳过 nginx/mysql/redis）
+                        sh """
+                            echo "=== [SSH] 构建并启动 Java 微服务 ==="
+                            ssh ${SSH_OPTS} ${WINDOWS_HOST} "cmd /c \"cd /d ${PROJECT_DIR_WIN} && docker compose up -d --build --no-deps campus-server-1 campus-server-2 order-service product-service logistics-service\""
+                            echo "Java 微服务构建完成"
+                        """
+
+                        // Step 3: 重新加载 nginx（使新 upstream 生效）
+                        sh """
+                            echo "=== [SSH] 重新加载 nginx ==="
+                            ssh ${SSH_OPTS} ${WINDOWS_HOST} "cmd /c \"docker restart campus-nginx\""
+                            echo "nginx 已重启"
+                        """
+
+                        // Step 4: 等待服务就绪（通过 HTTP 健康检查）
                         sh '''
-                            echo "=== 只停止 Java 微服务（保留 nginx/mysql/redis）==="
-                            docker compose stop campus-server-1 campus-server-2 order-service product-service logistics-service 2>/dev/null || true
-                            docker compose rm -f campus-server-1 campus-server-2 order-service product-service logistics-service 2>/dev/null || true
-
-                            echo "=== 确保 nginx.conf 文件存在（而非目录）==="
-                            rm -rf nginx 2>/dev/null || true
-                            mkdir -p nginx
-                            if [ -f nginx/nginx.conf ]; then
-                                echo "nginx.conf 已存在，跳过复制"
-                            else
-                                if [ -f nginx.conf ]; then
-                                    cp nginx.conf nginx/nginx.conf
-                                elif [ -f /mnt/campus-assistant-java/nginx/nginx.conf ]; then
-                                    cp /mnt/campus-assistant-java/nginx/nginx.conf nginx/nginx.conf
-                                else
-                                    echo "ERROR: nginx.conf 未找到"
-                                    exit 1
-                                fi
-                            fi
-
-                            echo "=== 仅构建并启动 Java 微服务（跳过 nginx/mysql/redis — 避免 DinD volume 冲突）==="
-                            docker compose up -d --build --no-deps campus-server-1 campus-server-2 order-service product-service logistics-service
-
-                            echo "=== 重新加载 nginx（宿主机管理，仅 restart）==="
-                            docker restart campus-nginx 2>/dev/null || echo "nginx 未运行（由宿主机管理，跳过）"
-
                             echo "=== 等待服务就绪 ==="
-                            sleep 3
-                            for i in $(seq 1 30); do
+                            sleep 5
+                            for i in $(seq 1 15); do
                                 if curl -sf http://host.docker.internal/api/health > /dev/null 2>&1; then
                                     echo "服务就绪 (${i}s)"
                                     break
                                 fi
-                                [ $i -eq 30 ] && echo "ERROR: 服务启动超时" && exit 1
-                                sleep 2
+                                [ $i -eq 15 ] && echo "ERROR: 服务启动超时" && exit 1
+                                sleep 3
                             done
-
-                            echo ""
-                            echo "=== 容器运行状态 ==="
-                            docker compose ps
                         '''
+
+                        // Step 5: 显示容器状态
+                        sh """
+                            echo ""
+                            echo "=== [SSH] 容器运行状态 ==="
+                            ssh ${SSH_OPTS} ${WINDOWS_HOST} "cmd /c \"cd /d ${PROJECT_DIR_WIN} && docker compose ps\""
+                        """
                     }
                 }
             }
             post {
                 failure {
-                    sh 'docker compose stop campus-server-1 campus-server-2 order-service product-service logistics-service 2>/dev/null || true'
+                    echo 'WARNING: 本地部署失败，请检查构建日志。nginx/mysql/redis 由宿主机管理，不受影响。'
+                    sh "ssh ${SSH_OPTS} ${WINDOWS_HOST} \"cmd /c \\\"cd /d ${PROJECT_DIR_WIN} && docker compose stop campus-server-1 campus-server-2 order-service product-service logistics-service 2>nul\\\"\" || true"
                     error('本地部署失败，请检查 Jenkins 构建日志')
                 }
             }
@@ -338,9 +345,9 @@ pipeline {
                         ).trim()
                         if (components) echo "${components}"
 
-                        // 2. Docker 容器状态
+                        // 2. Docker 容器状态 (SSH 远程获取)
                         echo "--- Docker 容器状态 ---"
-                        sh 'docker compose ps'
+                        sh "ssh ${SSH_OPTS} ${WINDOWS_HOST} \"cmd /c \\\"cd /d ${PROJECT_DIR_WIN} && docker compose ps\\\"\""
 
                         // 3. 微服务直连健康检查 (容器网络)
                         echo "--- 微服务直连健康检查 ---"

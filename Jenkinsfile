@@ -77,10 +77,13 @@ pipeline {
                         branch = 'local-test'
                         echo "Local test mode"
                     } else if (env.GIT_REPO_URL) {
-                        checkout([$class: 'GitSCM',
-                            branches: [[name: env.GIT_BRANCH ?: '*/main']],
-                            userRemoteConfigs: [[url: env.GIT_REPO_URL]]
-                        ])
+                        // TLS 连接有时不稳定(GnuTLS), 加 3 次重试
+                        retry(3) {
+                            checkout([$class: 'GitSCM',
+                                branches: [[name: env.GIT_BRANCH ?: '*/main']],
+                                userRemoteConfigs: [[url: env.GIT_REPO_URL]]
+                            ])
+                        }
                         commit = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
                         echo "Standard SCM checkout: ${commit}"
                     } else {

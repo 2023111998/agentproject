@@ -202,12 +202,12 @@ pipeline {
                             echo "Java 微服务启动完成"
                         """
 
-                        // Step 4: 等待 Java 微服务就绪（Spring Boot 冷启动需 30-90s）
+                        // Step 4: 等待 Java 微服务就绪（通过 host.docker.internal 绕过 DNS）
                         sh '''
                             echo "=== 等待 Java 微服务就绪 ==="
                             sleep 8
                             for i in $(seq 1 20); do
-                                if curl -sf http://campus-server-1:8000/actuator/health > /dev/null 2>&1; then
+                                if curl -sf http://host.docker.internal:8000/actuator/health > /dev/null 2>&1; then
                                     echo "Java 服务就绪 (${i}s)"
                                     break
                                 fi

@@ -83,7 +83,9 @@ pipeline {
 
         stage('Build & Push Images') {
             steps {
-                sh '''
+                retry(3) {
+                    timeout(time: 10, unit: 'MINUTES') {
+                        sh '''
                     set -eu
 
                     if docker inspect campus-registry >/dev/null 2>&1; then
@@ -123,7 +125,9 @@ pipeline {
                         docker push "$versioned"
                         docker push "$latest"
                     done
-                '''
+                        '''
+                    }
+                }
             }
         }
 

@@ -22,7 +22,7 @@ pipeline {
 
         // SSH 远程执行 — 所有 docker compose 命令通过 SSH 在宿主机原生执行
         WINDOWS_HOST    = '18489@host.docker.internal'
-        PROJECT_DIR_WIN = 'D:\\lab\\Agent服务工程\\campus-assistant-java'
+        PROJECT_DIR_WIN = 'D:/lab/Agent服务工程/campus-assistant-java'
         SSH_OPTS        = '-o StrictHostKeyChecking=no -o ConnectTimeout=10'
     }
 
@@ -173,28 +173,37 @@ pipeline {
             steps {
                 script {
                     timeout(time: 300, unit: 'SECONDS') {
-                        // Step 1: 停止并清理旧的 Java 微服务容器
+                        def sshCmd = "ssh ${SSH_OPTS} ${WINDOWS_HOST}"
+
+                        // Step 1: 停止并清理旧的 Java 微服务容器 (SSH)
                         sh """
                             echo "=== [SSH] 停止旧的 Java 微服务 ==="
-                            ssh ${SSH_OPTS} ${WINDOWS_HOST} "cmd /c \"cd /d ${PROJECT_DIR_WIN} && docker compose stop campus-server-1 campus-server-2 order-service product-service logistics-service 2>nul & docker compose rm -f campus-server-1 campus-server-2 order-service product-service logistics-service 2>nul\""
+                            ${sshCmd} "cd /d D:\\\\lab\\\\Agent服务工程\\\\campus-assistant-java && docker compose stop campus-server-1 campus-server-2 order-service product-service logistics-service 2>nul && docker compose rm -f campus-server-1 campus-server-2 order-service product-service logistics-service 2>nul"
                             echo "旧容器已清理"
                         """
 
-                        // Step 2: 构建并启动 Java 微服务（跳过 nginx/mysql/redis）
+                        // Step 2: 在 Jenkins 内构建镜像（DinD，凭证可用）
+                        sh '''
+                            echo "=== [Jenkins DinD] 构建 Docker 镜像 ==="
+                            docker compose build campus-server-1 campus-server-2 order-service product-service logistics-service
+                            echo "镜像构建完成"
+                        '''
+
+                        // Step 3: 在宿主机启动容器 (SSH，不 build)
                         sh """
-                            echo "=== [SSH] 构建并启动 Java 微服务 ==="
-                            ssh ${SSH_OPTS} ${WINDOWS_HOST} "cmd /c \"cd /d ${PROJECT_DIR_WIN} && docker compose up -d --build --no-deps campus-server-1 campus-server-2 order-service product-service logistics-service\""
-                            echo "Java 微服务构建完成"
+                            echo "=== [SSH] 启动 Java 微服务 ==="
+                            ${sshCmd} "cd /d D:\\\\lab\\\\Agent服务工程\\\\campus-assistant-java && docker compose up -d --no-deps campus-server-1 campus-server-2 order-service product-service logistics-service"
+                            echo "Java 微服务启动完成"
                         """
 
-                        // Step 3: 重新加载 nginx（使新 upstream 生效）
+                        // Step 4: 重新加载 nginx
                         sh """
                             echo "=== [SSH] 重新加载 nginx ==="
-                            ssh ${SSH_OPTS} ${WINDOWS_HOST} "cmd /c \"docker restart campus-nginx\""
+                            ${sshCmd} docker restart campus-nginx
                             echo "nginx 已重启"
                         """
 
-                        // Step 4: 等待服务就绪（通过 HTTP 健康检查）
+                        // Step 5: 等待服务就绪
                         sh '''
                             echo "=== 等待服务就绪 ==="
                             sleep 5
@@ -208,11 +217,11 @@ pipeline {
                             done
                         '''
 
-                        // Step 5: 显示容器状态
+                        // Step 6: 显示容器状态
                         sh """
                             echo ""
                             echo "=== [SSH] 容器运行状态 ==="
-                            ssh ${SSH_OPTS} ${WINDOWS_HOST} "cmd /c \"cd /d ${PROJECT_DIR_WIN} && docker compose ps\""
+                            ${sshCmd} "cd /d D:\\\\lab\\\\Agent服务工程\\\\campus-assistant-java && docker compose ps"
                         """
                     }
                 }
@@ -220,7 +229,7 @@ pipeline {
             post {
                 failure {
                     echo 'WARNING: 本地部署失败，请检查构建日志。nginx/mysql/redis 由宿主机管理，不受影响。'
-                    sh "ssh ${SSH_OPTS} ${WINDOWS_HOST} \"cmd /c \\\"cd /d ${PROJECT_DIR_WIN} && docker compose stop campus-server-1 campus-server-2 order-service product-service logistics-service 2>nul\\\"\" || true"
+                    sh "ssh ${SSH_OPTS} ${WINDOWS_HOST} \"cd /d D:\\\\lab\\\\Agent服务工程\\\\campus-assistant-java && docker compose stop campus-server-1 campus-server-2 order-service product-service logistics-service 2>nul\" || true"
                     error('本地部署失败，请检查 Jenkins 构建日志')
                 }
             }
@@ -347,7 +356,7 @@ pipeline {
 
                         // 2. Docker 容器状态 (SSH 远程获取)
                         echo "--- Docker 容器状态 ---"
-                        sh "ssh ${SSH_OPTS} ${WINDOWS_HOST} \"cmd /c \\\"cd /d ${PROJECT_DIR_WIN} && docker compose ps\\\"\""
+                        sh "ssh ${SSH_OPTS} ${WINDOWS_HOST} \"cd /d D:\\\\lab\\\\Agent服务工程\\\\campus-assistant-java && docker compose ps\""
 
                         // 3. 微服务直连健康检查 (容器网络)
                         echo "--- 微服务直连健康检查 ---"

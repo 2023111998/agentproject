@@ -134,18 +134,13 @@ pipeline {
             steps {
                 script {
                     echo '=== 离线评测 (通过宿主机 API) ==='
-                    def evalResult = sh(
-                        script: "curl -s http://host.docker.internal/api/evaluate",
-                        returnStdout: true
-                    ).trim()
-                    echo "评测结果: ${evalResult}"
                     try {
                         def passed = sh(
-                            script: "echo '${evalResult}' | python3 -c \"import sys,json; d=json.load(sys.stdin); print(d.get('passed',0))\"",
+                            script: "curl -s http://host.docker.internal/api/evaluate | python3 -c \"import sys,json; d=json.load(sys.stdin); print(d.get('passed',0))\"",
                             returnStdout: true
                         ).trim()
                         def total = sh(
-                            script: "echo '${evalResult}' | python3 -c \"import sys,json; d=json.load(sys.stdin); print(d.get('total',0))\"",
+                            script: "curl -s http://host.docker.internal/api/evaluate | python3 -c \"import sys,json; d=json.load(sys.stdin); print(d.get('total',0))\"",
                             returnStdout: true
                         ).trim()
                         if (passed == total && total != '0') {

@@ -178,9 +178,10 @@ pipeline {
                         def sshCmd = "ssh ${SSH_OPTS} ${WINDOWS_HOST}"
 
                         // Step 1: 停止并清理旧的 Java 微服务容器 (SSH)
+                        // 注意: stop/rm 可能因容器已不存在而返回非零，加 || true 容错
                         sh """
                             echo "=== [SSH] 停止旧的 Java 微服务 ==="
-                            ${sshCmd} "cd /d D:\\\\lab\\\\Agent服务工程\\\\campus-assistant-java && docker compose stop campus-server-1 campus-server-2 order-service product-service logistics-service 2>nul && docker compose rm -f campus-server-1 campus-server-2 order-service product-service logistics-service 2>nul"
+                            ${sshCmd} "cd /d D:\\\\lab\\\\Agent服务工程\\\\campus-assistant-java && docker compose stop campus-server-1 campus-server-2 order-service product-service logistics-service 2>nul || true && docker compose rm -f campus-server-1 campus-server-2 order-service product-service logistics-service 2>nul || true"
                             echo "旧容器已清理"
                         """
 

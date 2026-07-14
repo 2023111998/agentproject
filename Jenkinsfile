@@ -362,7 +362,7 @@ pipeline {
                         // 4. Prometheus 指标验证
                         echo "--- Prometheus 指标验证 ---"
                         def promMetrics = sh(
-                            script: "curl -s http://host.docker.internal/actuator/prometheus 2>/dev/null | head -5",
+                            script: "curl -s http://host.docker.internal/actuator/prometheus 2>/dev/null | grep jvm_ | head -1",
                             returnStdout: true
                         ).trim()
                         if (promMetrics.contains('jvm_')) {

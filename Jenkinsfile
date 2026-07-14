@@ -1,11 +1,11 @@
 // ============================================================================
-// 校园电商/外卖智能服务平台 — Java 重构版 CI/CD Pipeline (SSH 远程部署版)
+// 校园电商/外卖智能服务平台 — Java 重构版 CI/CD Pipeline
 // 阶段: Checkout → Build+Test → Static Analysis → Package
-//       → Deploy to Local → Smoke Test → Health Check → Post
+//       → Evaluation → Deploy to Local → Smoke Test → Health Check
 // 触发: 手动 Build Now (Jenkins UI)
 //
-// 部署策略: Jenkins 通过 SSH 远程在 Windows 宿主机执行 docker compose
-//           彻底绕过 Docker-in-Docker 限制 + GnuTLS GitHub 连接问题
+// 部署策略: Jenkins DinD 构建镜像 + SSH 单次调用 deploy.sh
+//           deploy.sh 在 Windows 宿主机原生执行容器生命周期管理
 // ============================================================================
 
 pipeline {
@@ -163,8 +163,8 @@ pipeline {
         }
 
         // ===== Stage 6: 本地 Docker 部署 (SSH 远程执行) =====
-        // 策略: 所有 docker compose 命令通过 SSH 在 Windows 宿主机原生执行
-        //       彻底消除 DinD 容器名冲突、volume 路径不可达、project 作用域问题
+        // 策略: Jenkins DinD 构建镜像 → SSH 单次调用 deploy.sh
+        //       deploy.sh 在 Windows 宿主机原生执行: stop → up --no-deps → wait → restart nginx
         stage('Deploy to Local') {
             when {
                 allOf {
@@ -175,66 +175,18 @@ pipeline {
             steps {
                 script {
                     timeout(time: 300, unit: 'SECONDS') {
-                        def sshCmd = "ssh ${SSH_OPTS} ${WINDOWS_HOST}"
-                        // ⚠️ 必须统一 project name，否则 Jenkins workspace 目录名差异
-                        // 会导致 Compose 项目名不一致，产生容器名冲突
-                        def composeCmd = "docker compose --project-name campus-assistant-java"
-
-                        // Step 1: 停止并清理旧的 Java 微服务容器 (SSH)
-                        // 注意: stop/rm 可能因容器已不存在而返回非零，加 || true 容错
-                        sh """
-                            echo "=== [SSH] 停止旧的 Java 微服务 ==="
-                            ${sshCmd} "cd /d D:\\\\lab\\\\Agent服务工程\\\\campus-assistant-java && ${composeCmd} stop campus-server-1 campus-server-2 order-service product-service logistics-service 2>nul || true && ${composeCmd} rm -f campus-server-1 campus-server-2 order-service product-service logistics-service 2>nul || true"
-                            echo "旧容器已清理"
-                        """
-
-                        // Step 2: 在 Jenkins 内构建镜像（DinD，凭证可用）
+                        // Step 1: Jenkins DinD 构建镜像
                         sh '''
                             echo "=== [Jenkins DinD] 构建 Docker 镜像 ==="
                             docker compose build campus-server-1 campus-server-2 order-service product-service logistics-service
                             echo "镜像构建完成"
                         '''
 
-                        // Step 3: 在宿主机启动容器 (SSH，不 build)
+                        // Step 2: SSH 远程部署 — 单次调用 deploy.sh
                         sh """
-                            echo "=== [SSH] 启动 Java 微服务 ==="
-                            ${sshCmd} "cd /d D:\\\\lab\\\\Agent服务工程\\\\campus-assistant-java && ${composeCmd} up -d --no-deps campus-server-1 campus-server-2 order-service product-service logistics-service"
-                            echo "Java 微服务启动完成"
-                        """
-
-                        // Step 4: 等待 Java 微服务启动（8000 端口未暴露，DNS 不可靠，固定等待）
-                        sh '''
-                            echo "=== 等待 Java 微服务启动 (60s) ==="
-                            sleep 60
-                            echo "启动等待完成"
-                        '''
-
-                        // Step 5: 重新加载 nginx（Java 服务就绪后）
-                        sh """
-                            echo "=== [SSH] 重新加载 nginx ==="
-                            ${sshCmd} docker restart campus-nginx
-                            echo "nginx 已重启"
-                        """
-
-                        // Step 6: 最终健康确认（通过 nginx 入口）
-                        sh '''
-                            echo "=== 最终健康确认 ==="
-                            sleep 3
-                            for i in $(seq 1 10); do
-                                if curl -sf http://host.docker.internal/api/health > /dev/null 2>&1; then
-                                    echo "服务完全就绪 (${i}s)"
-                                    break
-                                fi
-                                [ $i -eq 10 ] && echo "ERROR: 总服务启动超时" && exit 1
-                                sleep 2
-                            done
-                        '''
-
-                        // Step 7: 显示容器状态
-                        sh """
-                            echo ""
-                            echo "=== [SSH] 容器运行状态 ==="
-                            ${sshCmd} "cd /d D:\\\\lab\\\\Agent服务工程\\\\campus-assistant-java && ${composeCmd} ps"
+                            echo "=== [SSH] 远程部署 ==="
+                            ssh ${SSH_OPTS} ${WINDOWS_HOST} 'bash /d/lab/Agent服务工程/campus-assistant-java/deploy.sh'
+                            echo "部署完成"
                         """
                     }
                 }
@@ -242,7 +194,6 @@ pipeline {
             post {
                 failure {
                     echo 'WARNING: 本地部署失败，请检查构建日志。nginx/mysql/redis 由宿主机管理，不受影响。'
-                    sh "ssh ${SSH_OPTS} ${WINDOWS_HOST} \"cd /d D:\\\\lab\\\\Agent服务工程\\\\campus-assistant-java && docker compose --project-name campus-assistant-java stop campus-server-1 campus-server-2 order-service product-service logistics-service 2>nul\" || true"
                     error('本地部署失败，请检查 Jenkins 构建日志')
                 }
             }
@@ -351,13 +302,8 @@ pipeline {
                         if (actuatorStatus == 'UP') {
                             echo "  [PASS] Actuator 聚合状态: UP"
                         } else {
-                            def redisDown = actuatorResult.contains('"redis":{"status":"DOWN"')
-                            if (redisDown) {
-                                echo "  [WARN] Actuator 聚合状态: ${actuatorStatus} (Redis 未配置，使用内存会话)"
-                            } else {
-                                echo "  [FAIL] Actuator 聚合状态: ${actuatorStatus}"
-                                healthOk = false
-                            }
+                            echo "  [FAIL] Actuator 聚合状态: ${actuatorStatus}"
+                            healthOk = false
                         }
 
                         // 列出子组件状态

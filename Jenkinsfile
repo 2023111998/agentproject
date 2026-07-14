@@ -202,17 +202,17 @@ pipeline {
                             echo "Java 微服务启动完成"
                         """
 
-                        // Step 4: 等待 Java 微服务就绪（通过容器网络直连检查）
+                        // Step 4: 等待 Java 微服务就绪（Spring Boot 冷启动需 30-90s）
                         sh '''
                             echo "=== 等待 Java 微服务就绪 ==="
-                            sleep 5
-                            for i in $(seq 1 15); do
+                            sleep 8
+                            for i in $(seq 1 20); do
                                 if curl -sf http://campus-server-1:8000/actuator/health > /dev/null 2>&1; then
                                     echo "Java 服务就绪 (${i}s)"
                                     break
                                 fi
-                                [ $i -eq 15 ] && echo "ERROR: Java 服务启动超时" && exit 1
-                                sleep 3
+                                [ $i -eq 20 ] && echo "ERROR: Java 服务启动超时" && exit 1
+                                sleep 5
                             done
                         '''
 

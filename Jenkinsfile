@@ -42,30 +42,16 @@ pipeline {
     stages {
 
         // ===== Stage 1: 代码检出 =====
-        // 策略: 优先从 /mnt 本地目录复制（绕过 GnuTLS GitHub 连接问题）
-        //       GitHub clone 仅作 fallback
+        // 策略: 从 GitHub HTTPS clone（含 retry 容错 GnuTLS 间歇失败）
+        //       /mnt 本地目录仅作 fallback
         stage('Checkout') {
             steps {
                 script {
                     def commit = 'unknown'
                     def branch = 'master'
 
-                    // 优先从宿主机挂载目录复制源码（100% 可靠，无 TLS 依赖）
-                    if (fileExists('/mnt/campus-assistant-java/pom.xml')) {
-                        sh '''
-                            echo "=== 从本地 /mnt 目录复制源码（绕过 GitHub TLS）==="
-                            rm -rf ./* ./.[!.]* 2>/dev/null || true
-                            cp -r /mnt/campus-assistant-java/* . 2>/dev/null
-                            cp -r /mnt/campus-assistant-java/.[!.]* . 2>/dev/null || true
-                            rm -rf .git 2>/dev/null || true
-                            echo "本地复制完成"
-                        '''
-                        commit = sh(script: 'cd /mnt/campus-assistant-java && git rev-parse --short HEAD 2>/dev/null || echo "local"', returnStdout: true).trim()
-                        branch = 'master'
-                        echo "本地 /mnt 复制: ${branch} @ ${commit}"
-                    } else {
-                        // Fallback: GitHub HTTPS clone (含 TLS 重试)
-                        echo '/mnt 目录不可用，fallback 到 GitHub HTTPS clone'
+                    // 主路径: GitHub HTTPS clone（含 3 次重试）
+                    try {
                         retry(3) {
                             sh '''
                                 rm -rf ./* ./.[!.]* 2>/dev/null || true
@@ -75,6 +61,22 @@ pipeline {
                         }
                         commit = sh(script: 'cat .git_commit', returnStdout: true).trim()
                         echo "GitHub HTTPS clone: ${branch} @ ${commit}"
+                    } catch (Exception e) {
+                        // GitHub 不可用时 fallback 到本地 /mnt 挂载
+                        echo "GitHub clone 失败: ${e.message}"
+                        if (fileExists('/mnt/campus-assistant-java/pom.xml')) {
+                            sh '''
+                                echo "=== Fallback: 从本地 /mnt 复制 ==="
+                                rm -rf ./* ./.[!.]* 2>/dev/null || true
+                                cp -r /mnt/campus-assistant-java/* . 2>/dev/null
+                                cp -r /mnt/campus-assistant-java/.[!.]* . 2>/dev/null || true
+                                rm -rf .git 2>/dev/null || true
+                            '''
+                            commit = sh(script: 'cd /mnt/campus-assistant-java && git rev-parse --short HEAD 2>/dev/null || echo "local"', returnStdout: true).trim()
+                            echo "本地 /mnt 复制: ${branch} @ ${commit}"
+                        } else {
+                            error('GitHub 和本地 /mnt 均不可用，无法获取源码')
+                        }
                     }
 
                     env.GIT_COMMIT = commit

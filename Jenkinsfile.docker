@@ -1,0 +1,255 @@
+// Campus Assistant: GitHub -> Maven -> local registry -> Docker deployment.
+// This pipeline is installed as an inline Jenkins job so it can bootstrap from
+// the remote repository even before this file is pushed to GitHub.
+
+pipeline {
+    agent any
+
+    options {
+        skipDefaultCheckout()
+        disableConcurrentBuilds()
+        timestamps()
+        buildDiscarder(logRotator(numToKeepStr: '20'))
+    }
+
+    environment {
+        REPO_URL             = 'https://github.com/2023111998/agentproject.git'
+        REGISTRY_HOST        = 'localhost:5000'
+        REGISTRY_NAMESPACE   = 'campus'
+        COMPOSE_PROJECT_NAME = 'campus-assistant-java'
+        MAVEN_OPTS           = '-Dmaven.repo.local=.m2/repository'
+        MAVEN_HOME           = tool name: 'maven-3', type: 'maven'
+    }
+
+    parameters {
+        string(name: 'GIT_BRANCH', defaultValue: 'master',
+               description: 'GitHub branch to build and deploy')
+    }
+
+    stages {
+        stage('Checkout from GitHub') {
+            steps {
+                deleteDir()
+                sh '''
+                    set +x
+                    TOKEN="${githubtoken:-${GITHUB_TOKEN:-}}"
+                    BRANCH="${GIT_BRANCH:-master}"
+                    if [ -n "$TOKEN" ]; then
+                        AUTH=$(printf 'x-access-token:%s' "$TOKEN" | base64 | tr -d '\n')
+                        git -c http.extraHeader="Authorization: Basic $AUTH" \
+                            clone --depth 1 --branch "$BRANCH" "$REPO_URL" .
+                        unset AUTH TOKEN
+                    else
+                        git clone --depth 1 --branch "$BRANCH" "$REPO_URL" .
+                    fi
+                    set -x
+                    git rev-parse --short HEAD > .git_commit
+                '''
+                script {
+                    env.GIT_SHORT_COMMIT = readFile('.git_commit').trim()
+                    env.IMAGE_TAG = "${env.BUILD_NUMBER}-${env.GIT_SHORT_COMMIT}"
+                    def branch = params.GIT_BRANCH ?: 'master'
+                    currentBuild.description = "${branch}@${env.GIT_SHORT_COMMIT}"
+                    echo "Checked out ${branch}@${env.GIT_SHORT_COMMIT}"
+                }
+            }
+        }
+
+        stage('Maven Build & Test') {
+            steps {
+                retry(3) {
+                    sh '''
+                        set -eu
+                        "$MAVEN_HOME/bin/mvn" clean test
+                    '''
+                }
+            }
+        }
+
+        stage('Maven Package') {
+            steps {
+                retry(3) {
+                    sh '''
+                        set -eu
+                        "$MAVEN_HOME/bin/mvn" package -DskipTests
+                        test -f campus-server/target/campus-server-1.0.0.jar
+                        test -f order-service/target/order-service-1.0.0.jar
+                        test -f product-service/target/product-service-1.0.0.jar
+                        test -f logistics-service/target/logistics-service-1.0.0.jar
+                    '''
+                }
+            }
+        }
+
+        stage('Build & Push Images') {
+            steps {
+                sh '''
+                    set -eu
+
+                    if docker inspect campus-registry >/dev/null 2>&1; then
+                        docker start campus-registry >/dev/null 2>&1 || true
+                    else
+                        docker run -d --name campus-registry --restart unless-stopped \
+                            -p 5000:5000 registry:2
+                    fi
+
+                    registry_ready=false
+                    for attempt in $(seq 1 20); do
+                        if curl -fsS http://host.docker.internal:5000/v2/ >/dev/null; then
+                            registry_ready=true
+                            break
+                        fi
+                        sleep 2
+                    done
+                    test "$registry_ready" = true
+
+                    docker build \
+                        -t "$REGISTRY_HOST/$REGISTRY_NAMESPACE/campus-server:$IMAGE_TAG" \
+                        -f campus-server/Dockerfile .
+                    docker build \
+                        -t "$REGISTRY_HOST/$REGISTRY_NAMESPACE/order-service:$IMAGE_TAG" \
+                        -f order-service/Dockerfile .
+                    docker build \
+                        -t "$REGISTRY_HOST/$REGISTRY_NAMESPACE/product-service:$IMAGE_TAG" \
+                        -f product-service/Dockerfile .
+                    docker build \
+                        -t "$REGISTRY_HOST/$REGISTRY_NAMESPACE/logistics-service:$IMAGE_TAG" \
+                        -f logistics-service/Dockerfile .
+
+                    for image in campus-server order-service product-service logistics-service; do
+                        versioned="$REGISTRY_HOST/$REGISTRY_NAMESPACE/$image:$IMAGE_TAG"
+                        latest="$REGISTRY_HOST/$REGISTRY_NAMESPACE/$image:latest"
+                        docker tag "$versioned" "$latest"
+                        docker push "$versioned"
+                        docker push "$latest"
+                    done
+                '''
+            }
+        }
+
+        stage('Deploy to Local Docker') {
+            steps {
+                script {
+                    sh 'mkdir -p .ci'
+                    writeFile file: '.ci/docker-compose.images.yml', text: """\
+services:
+  order-service:
+    image: ${env.REGISTRY_HOST}/${env.REGISTRY_NAMESPACE}/order-service:${env.IMAGE_TAG}
+  product-service:
+    image: ${env.REGISTRY_HOST}/${env.REGISTRY_NAMESPACE}/product-service:${env.IMAGE_TAG}
+  logistics-service:
+    image: ${env.REGISTRY_HOST}/${env.REGISTRY_NAMESPACE}/logistics-service:${env.IMAGE_TAG}
+  campus-server-1:
+    image: ${env.REGISTRY_HOST}/${env.REGISTRY_NAMESPACE}/campus-server:${env.IMAGE_TAG}
+    environment:
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: "6379"
+  campus-server-2:
+    image: ${env.REGISTRY_HOST}/${env.REGISTRY_NAMESPACE}/campus-server:${env.IMAGE_TAG}
+    environment:
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: "6379"
+"""
+                }
+                sh '''
+                    set -eu
+                    COMPOSE="docker compose --project-name $COMPOSE_PROJECT_NAME -f docker-compose.yml -f .ci/docker-compose.images.yml"
+                    SERVICES="order-service product-service logistics-service campus-server-1 campus-server-2"
+
+                    $COMPOSE pull $SERVICES
+                    $COMPOSE up -d --no-build --no-deps --force-recreate $SERVICES
+                    docker restart campus-nginx >/dev/null
+
+                    app_ready=false
+                    for attempt in $(seq 1 30); do
+                        if curl -fsS http://host.docker.internal/actuator/health >/dev/null; then
+                            app_ready=true
+                            break
+                        fi
+                        sleep 5
+                    done
+                    test "$app_ready" = true
+                    $COMPOSE ps $SERVICES
+                '''
+            }
+        }
+
+        stage('Smoke Test') {
+            steps {
+                sh '''
+                    set -eu
+                    BASE_URL=http://host.docker.internal
+
+                    check_get() {
+                        name="$1"
+                        url="$2"
+                        status=$(curl -sS -o /dev/null -w '%{http_code}' "$url")
+                        test "$status" = 200
+                        echo "[PASS] $name -> $status"
+                    }
+
+                    check_get customer "$BASE_URL/"
+                    check_get merchant "$BASE_URL/merchant"
+                    check_get rider "$BASE_URL/rider"
+                    check_get chat-page "$BASE_URL/chat"
+                    check_get products-api "$BASE_URL/api/products"
+
+                    chat_status=$(curl -sS -o /dev/null -w '%{http_code}' \
+                        -X POST "$BASE_URL/api/chat" \
+                        -H 'Content-Type: application/json' \
+                        -d '{"message":"hello"}')
+                    test "$chat_status" = 200
+                    echo "[PASS] chat-api -> $chat_status"
+
+                    evaluation=$(curl -fsS "$BASE_URL/api/evaluate")
+                    EVALUATION="$evaluation" python3 -c \
+                        'import json, os; d=json.loads(os.environ["EVALUATION"]); assert d["passed"] == d["total"] and d["total"] > 0; print("[PASS] evaluation -> %s/%s" % (d["passed"], d["total"]))'
+                '''
+            }
+        }
+
+        stage('Health Check') {
+            steps {
+                sh '''
+                    set -eu
+                    BASE_URL=http://host.docker.internal
+
+                    health=$(curl -fsS "$BASE_URL/actuator/health")
+                    HEALTH="$health" python3 -c \
+                        'import json, os; assert json.loads(os.environ["HEALTH"])["status"] == "UP"'
+                    echo '[PASS] aggregate actuator health -> UP'
+
+                    for container in campus-order campus-product campus-logistics campus-server-1 campus-server-2; do
+                        running=$(docker inspect --format '{{.State.Running}}' "$container")
+                        test "$running" = true
+                        echo "[PASS] $container -> running"
+                    done
+
+                    for endpoint in \
+                        order-service:8001/actuator/health \
+                        product-service:8002/actuator/health \
+                        logistics-service:8003/actuator/health; do
+                        docker exec campus-nginx wget -qO- "http://$endpoint" | grep -q '"status":"UP"'
+                        echo "[PASS] $endpoint -> UP"
+                    done
+
+                    curl -fsS "$BASE_URL/actuator/prometheus" | grep -q '^jvm_'
+                    echo '[PASS] Prometheus JVM metrics available'
+                '''
+            }
+        }
+    }
+
+    post {
+        always {
+            junit allowEmptyResults: true, testResults: '**/target/surefire-reports/*.xml'
+            cleanWs(deleteDirs: true)
+        }
+        success {
+            echo "SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER} deployed ${env.IMAGE_TAG}"
+        }
+        failure {
+            echo "FAILURE: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
+        }
+    }
+}
